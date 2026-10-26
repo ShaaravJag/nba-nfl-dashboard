@@ -258,7 +258,8 @@ function legFootHtml(leg, res) {
     if (res.status === 'hit') bits.push('<span style="color:var(--green)">Hit</span>');
     if (res.status === 'bust') bits.push('<span style="color:var(--red)">Busted</span>');
     if (res.projection != null && res.status === 'live') bits.push(`<span class="sep">&middot;</span><span>on pace for ${res.projection}</span>`);
-    if (res.margin) bits.push(`<span>margin ${res.detail}</span>`);
+    // A 0-0 margin before tip-off is noise, not information.
+    if (res.margin && res.status !== 'pending') bits.push(`<span>margin ${res.detail}</span>`);
   }
   const manual = `<span class="manual-btns">
       <button data-manual="won" data-leg="${leg.id}" class="${leg.manualStatus === 'won' ? 'on-win' : ''}">Hit</button>
@@ -313,13 +314,14 @@ function betHtml(bet) {
   return `<article class="bet ${status}" data-bet="${bet.id}">
     <div class="bet-head">
       <span class="book ${esc((bet.book || '').toLowerCase().replace(/\s/g, ''))}">${esc(bet.book || 'Bet')}</span>
-      <div>
-        <div class="bet-title">${title}</div>
-        ${sub ? `<div class="bet-sub">${sub}</div>` : ''}
-      </div>
+      <span class="bet-title">${title}</span>
+      <span class="spacer" style="flex:1"></span>
+      <button class="icon-btn" data-del="${bet.id}" title="Delete bet">&times;</button>
+    </div>
+    <div class="bet-meta">
+      <span>${sub || ''}</span>
       <span class="spacer" style="flex:1"></span>
       ${statusPill(status)}
-      <button class="icon-btn" data-del="${bet.id}" title="Delete bet">&times;</button>
     </div>
     ${bet.legs.map((leg, i) => legHtml(leg, results[i])).join('')}
   </article>`;
@@ -467,7 +469,27 @@ function renderAdd() {
       <button class="x" data-rm-leg="${leg.id}">&times;</button>
     </div>`).join('');
 
+  // Import leads: pasting a screenshot-derived parlay is the common path, and
+  // building one leg at a time is the fallback.
   view.innerHTML = `
+    <div class="panel">
+      <h3>Import from screenshots</h3>
+      <div class="note">Copy the prompt, start a Claude chat, attach your bet-slip screenshots, and paste the JSON it returns below. Handles several screenshots, several books, and several parlays at once.</div>
+      <button class="btn" id="btn-copy-prompt" style="margin-top:10px">Copy import prompt</button>
+      <textarea id="in-import" placeholder='[{"book":"FanDuel","stake":10,"americanOdds":650,"legs":[...]}]' style="margin-top:10px"></textarea>
+      <button class="btn ghost" id="btn-import" style="margin-top:8px">Import JSON</button>
+      <div id="import-msg"></div>
+    </div>
+
+    <div class="or-divider"><span>or build one by hand</span></div>
+
+    <div class="panel">
+      <h3>Add a leg</h3>
+      <input id="in-search" type="search" placeholder="Search player or game on today's slate" value="${esc(state.picker.query)}" autocomplete="off">
+      <div class="results" id="picker-results"></div>
+    </div>
+    ${pickerDetailHtml()}
+
     <div class="panel">
       <h3>Bet details</h3>
       <div class="row">
@@ -480,25 +502,8 @@ function renderAdd() {
       </div>
       <div class="note">Leave odds blank to compute the parlay price from the leg odds.</div>
       ${d.legs.length ? `<div class="pending-legs">${legRows}</div>
-        <button class="btn" id="btn-save-bet" style="margin-top:10px">Save bet (${d.legs.length} leg${d.legs.length > 1 ? 's' : ''})</button>` : ''}
-    </div>
-
-    <div class="panel">
-      <h3>Add a leg</h3>
-      <input id="in-search" type="search" placeholder="Search player or game on today's slate" value="${esc(state.picker.query)}" autocomplete="off">
-      <div class="results" id="picker-results"></div>
-    </div>
-    ${pickerDetailHtml()}
-
-    <div class="panel">
-      <h3>Import from screenshots</h3>
-      <div class="note">Copy the prompt, start a Claude chat, attach your bet-slip screenshots, and paste the JSON it returns below. Handles several screenshots, several books, and several parlays at once.</div>
-      <div class="row" style="margin-top:10px">
-        <button class="btn ghost sm" id="btn-copy-prompt" style="flex:1">Copy import prompt</button>
-      </div>
-      <textarea id="in-import" placeholder='[{"book":"FanDuel","stake":10,"americanOdds":650,"legs":[...]}]' style="margin-top:10px"></textarea>
-      <button class="btn ghost" id="btn-import" style="margin-top:8px">Import JSON</button>
-      <div id="import-msg"></div>
+        <button class="btn" id="btn-save-bet" style="margin-top:10px">Save bet (${d.legs.length} leg${d.legs.length > 1 ? 's' : ''})</button>`
+        : '<div class="note" style="margin-top:8px">Add a leg above, then save.</div>'}
     </div>`;
 
   renderPickerResults();

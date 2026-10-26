@@ -23,19 +23,38 @@ html, body {
   background: var(--bg);
   color: var(--text);
   font: 15px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, system-ui, sans-serif;
-  overscroll-behavior-y: none;
 }
 
-body { padding-bottom: calc(72px + var(--safe-b)); }
+/* The page is a column the exact height of the visible viewport: header, a
+   scrolling middle, tab bar. dvh tracks iOS chrome as it shows and hides, so
+   the bar sits flush on the bottom edge instead of floating above it the way a
+   position:fixed bar does once an installed PWA has a home indicator. */
+html { height: 100%; }
+body {
+  height: 100vh;      /* fallback for browsers without dvh */
+  height: 100dvh;
+  display: flex;
+  flex-direction: column;
+}
 
 button, input, select, textarea { font: inherit; color: inherit; }
 button { cursor: pointer; border: none; background: none; }
 
-.wrap { max-width: 720px; margin: 0 auto; padding: 0 14px; }
+.wrap { max-width: 720px; margin: 0 auto; padding: 0 14px; width: 100%; }
+
+/* Only this scrolls. min-height:0 lets a flex child actually shrink and scroll. */
+main#view {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior-y: contain;
+  -webkit-overflow-scrolling: touch;
+  padding-bottom: 16px;
+}
 
 /* ---------- header ---------- */
 .topbar {
-  position: sticky; top: 0; z-index: 30;
+  flex: none; z-index: 30;
   background: rgba(10, 12, 16, .88);
   backdrop-filter: saturate(160%) blur(12px);
   border-bottom: 1px solid var(--line);
@@ -71,14 +90,23 @@ button { cursor: pointer; border: none; background: none; }
 .bet.won { border-color: rgba(34,210,106,.45); }
 .bet.lost { border-color: rgba(255,77,94,.35); }
 
-.bet-head { display: flex; align-items: center; gap: 10px; padding: 12px 14px; border-bottom: 1px solid var(--line); }
+.bet-head { display: flex; align-items: center; gap: 9px; padding: 12px 14px 0; }
+/* The stake/odds line gets its own full-width row -- squeezed into the header
+   it truncated on a phone and pushed the title onto two lines. */
+.bet-meta {
+  display: flex; align-items: center; gap: 8px;
+  padding: 4px 14px 0; font-size: 11.5px; color: var(--dim);
+  font-variant-numeric: tabular-nums;
+}
+.bet-meta > span:first-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.bet-head + .leg, .bet-meta + .leg { border-top: none; margin-top: 11px; border-top: 1px solid var(--line); }
 .book {
   font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: .06em;
   padding: 3px 7px; border-radius: 6px; background: var(--card-2); color: var(--muted);
 }
 .book.fanduel { background: rgba(30,100,255,.16); color: #6ba4ff; }
 .book.draftkings { background: rgba(83,208,80,.14); color: #6fd36c; }
-.bet-title { font-weight: 600; font-size: 14px; }
+.bet-title { font-weight: 600; font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
 .bet-sub { font-size: 11.5px; color: var(--dim); margin-top: 1px; font-variant-numeric: tabular-nums; }
 
 .pill {
@@ -143,9 +171,12 @@ button { cursor: pointer; border: none; background: none; }
 
 /* ---------- tabs ---------- */
 .tabbar {
-  position: fixed; left: 0; right: 0; bottom: 0; z-index: 40;
-  background: rgba(10,12,16,.94); backdrop-filter: blur(12px);
-  border-top: 1px solid var(--line); padding-bottom: var(--safe-b);
+  flex: none; z-index: 40;
+  background: var(--card);
+  border-top: 1px solid var(--line);
+  /* Keeps the labels clear of the home indicator; the bar's background still
+     runs to the physical bottom edge. */
+  padding-bottom: var(--safe-b);
 }
 .tabbar-in { display: flex; max-width: 720px; margin: 0 auto; }
 .tab { flex: 1; padding: 11px 0 10px; text-align: center; color: var(--dim); font-size: 10.5px; font-weight: 600; letter-spacing: .03em; }
@@ -203,9 +234,15 @@ textarea { min-height: 120px; resize: vertical; font-family: ui-monospace, SFMon
 .hist-row .amt { margin-left: auto; font-weight: 700; font-variant-numeric: tabular-nums; }
 
 .toast {
-  position: fixed; left: 50%; transform: translateX(-50%); bottom: calc(80px + var(--safe-b));
+  position: fixed; left: 50%; transform: translateX(-50%); bottom: calc(86px + var(--safe-b));
   background: var(--card-2); border: 1px solid var(--line); color: var(--text);
   padding: 10px 16px; border-radius: 999px; font-size: 13px; z-index: 60;
   opacity: 0; pointer-events: none; transition: opacity .2s, transform .2s;
 }
 .toast.show { opacity: 1; transform: translateX(-50%) translateY(-4px); }
+
+.or-divider { display: flex; align-items: center; gap: 10px; margin: 18px 2px 4px; color: var(--dim); font-size: 11px; text-transform: uppercase; letter-spacing: .08em; }
+.or-divider::before, .or-divider::after { content: ''; flex: 1; height: 1px; background: var(--line); }
+
+/* Long book names ("theScore Bet") were wrapping inside the badge. */
+.book { white-space: nowrap; flex: none; }
