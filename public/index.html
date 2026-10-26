@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1" />
+<title>Bet Tracker</title>
+<meta name="description" content="Live parlay tracking across sportsbooks." />
+<meta name="theme-color" content="#0a0c10" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+<meta name="apple-mobile-web-app-title" content="Bets" />
+<link rel="manifest" href="/manifest.json" />
+<link rel="apple-touch-icon" href="/icons/icon-192.png" />
+<link rel="icon" href="/icons/icon-192.png" />
+<link rel="stylesheet" href="/styles.css" />
+</head>
+<body>
+
+<header class="topbar">
+  <div class="wrap topbar-in">
+    <span class="brand">Bet Tracker</span>
+    <span class="pulse"><span class="dot" id="pulse-dot"></span><span id="pulse-text">idle</span></span>
+    <span class="spacer"></span>
+    <button class="icon-btn" id="btn-refresh" title="Refresh now">&#8635;</button>
+    <button class="icon-btn" id="btn-settings" title="Sync &amp; settings">&#9881;</button>
+  </div>
+</header>
+
+<main class="wrap" id="view"></main>
+
+<nav class="tabbar">
+  <div class="tabbar-in">
+    <button class="tab active" data-tab="live"><span class="ic">&#9679;</span>Live</button>
+    <button class="tab" data-tab="add"><span class="ic">&#43;</span>Add Bet</button>
+    <button class="tab" data-tab="history"><span class="ic">&#9776;</span>History</button>
+  </div>
+</nav>
+
+<div class="toast" id="toast"></div>
+
+<script type="module" src="/app.js"></script>
+<script>
+  if ('serviceWorker' in navigator) {
+    window.addEventListener('load', () => navigator.serviceWorker.register('/sw.js').catch(() => {}));
+  }
+</script>
+</body>
+</html>
