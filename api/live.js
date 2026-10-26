@@ -34,7 +34,9 @@ export default async function handler(req, res) {
   });
 
   // Short edge cache, then serve stale while revalidating so a slow ESPN
-  // response never stalls the UI.
-  res.setHeader('Cache-Control', 'public, s-maxage=5, stale-while-revalidate=25');
+  // response never stalls the UI. The stale window is also the worst case age
+  // of the first poll after the app has been closed for a while, so keep it
+  // tight: on a live tracker an old score is worse than a moment's wait.
+  res.setHeader('Cache-Control', 'public, s-maxage=5, stale-while-revalidate=10');
   res.status(200).json({ fetchedAt: Date.now(), games, errors });
 }

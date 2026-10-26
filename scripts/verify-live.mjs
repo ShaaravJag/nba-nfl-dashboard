@@ -68,22 +68,71 @@ if (top) {
   check('a cleared over locks in as hit', hit.status === 'hit', `${top.name} over ${hit.line} -> ${hit.status}`);
 }
 
-console.log('\n-- waiting 25s for the game to move --');
-await new Promise((r) => setTimeout(r, 25000));
+// Two samples taken a fixed gap apart is not enough to prove movement: the gap
+// can land inside the endpoint's own stale-while-revalidate window and return
+// the very same cached copy, and an NBA clock legitimately sits still through a
+// timeout or free throws. So poll at the app's real cadence instead and watch
+// for the first genuine change, whatever moves first.
+const WINDOW_MS = 90000;
+console.log(`\n-- polling every 3s for up to ${WINDOW_MS / 1000}s, watching for movement --`);
 
-const second = await sample();
-const g2 = second.game;
-const clockMoved = g2.clock !== g1.clock || g2.period !== g1.period;
-const scoreMoved = g2.home.score !== g1.home.score || g2.away.score !== g1.away.score;
-const statsMoved = Object.values(g2.players).some((p) => {
-  const before = g1.players[p.id];
-  return before && JSON.stringify(before.stats) !== JSON.stringify(p.stats);
-});
+const deadline = Date.now() + WINDOW_MS;
+let last = g1;
+let moved = null;
+let polls = 1;
 
-console.log(`        now: ${g2.away.abbr} ${g2.away.score} @ ${g2.home.abbr} ${g2.home.score} -- ${g2.statusDetail}`);
-check('the clock advanced between polls', clockMoved, `${g1.clock} -> ${g2.clock}`);
-check('score or player stats changed', scoreMoved || statsMoved,
-  `score moved: ${scoreMoved}, stats moved: ${statsMoved}`);
+while (Date.now() < deadline && !moved) {
+  await new Promise((r) => setTimeout(r, 3000));
+  const next = (await sample()).game;
+  polls++;
+  if (!next) continue;
+
+  if (next.clock !== last.clock || next.period !== last.period) {
+    moved = `clock ${last.clock} -> ${next.clock}`;
+  } else if (next.home.score !== last.home.score || next.away.score !== last.away.score) {
+    moved = `score ${last.away.score}-${last.home.score} -> ${next.away.score}-${next.home.score}`;
+  } else {
+    for (const p of Object.values(next.players)) {
+      const before = last.players[p.id];
+      if (!before) continue;
+      if (JSON.stringify(before.stats) !== JSON.stringify(p.stats)) { moved = `${p.name}'s stat line changed`; break; }
+      if (before.onCourt !== p.onCourt) { moved = `${p.name} went ${p.onCourt ? 'on' : 'off'} the floor`; break; }
+    }
+  }
+  last = next;
+}
+
+console.log(`        now: ${last.away.abbr} ${last.away.score} @ ${last.home.abbr} ${last.home.score} -- ${last.statusDetail}`);
+check('live data moved on its own', !!moved,
+  moved || `nothing changed across ${polls} polls -- if the game is stopped this is inconclusive, not a failure`);
+
+// The endpoint is only as fresh as its source, so compare the two directly
+// rather than trusting the endpoint on its own. It sits behind a 5s edge cache,
+// so being one tick behind is the design, not a fault -- give it a second look
+// before calling a mismatch a failure.
+const espnUrl = `https://site.api.espn.com/apis/site/v2/sports/${sport === 'nba' ? 'basketball/nba' : 'football/nfl'}/summary?event=${eventId}`;
+
+const compare = async () => {
+  const [upstream, ours] = await Promise.all([
+    fetch(espnUrl, { cache: 'no-store' }).then((r) => r.json()),
+    sample().then((s) => s.game),
+  ]);
+  const uc = upstream.header.competitions[0];
+  const upScore = Object.fromEntries(uc.competitors.map((c) => [c.team.abbreviation, String(c.score)]));
+  return {
+    agrees: ours.clock === uc.status.displayClock
+      && String(ours.home.score) === upScore[ours.home.abbr]
+      && String(ours.away.score) === upScore[ours.away.abbr],
+    detail: `espn P${uc.status.period} ${uc.status.displayClock} ${JSON.stringify(upScore)}  |  ours P${ours.period} ${ours.clock} ${ours.away.abbr}:${ours.away.score} ${ours.home.abbr}:${ours.home.score}`,
+  };
+};
+
+let agreement = await compare();
+if (!agreement.agrees) {
+  await new Promise((r) => setTimeout(r, 6000));
+  agreement = await compare();
+}
+check('endpoint agrees with ESPN within one cache window', agreement.agrees, agreement.detail);
 
 console.log(`\n${failures === 0 ? 'Live updating confirmed.' : `${failures} FAILED`}\n`);
 process.exit(failures === 0 ? 0 : 1);
