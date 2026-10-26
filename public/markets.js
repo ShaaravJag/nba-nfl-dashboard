@@ -153,13 +153,29 @@ export function resolveMarket(sport, raw) {
 const EMPTY_STATS = {};
 
 // Share of the game already played, used for the pace projection.
+/**
+ * Minutes left in the current period. ESPN changes format inside the final
+ * minute -- "9:41" for most of a period, then tenths of a second with no colon
+ * at all ("56.2", "0.4") -- so splitting on ':' unconditionally reads 56.2 as
+ * fifty-six minutes remaining and sends elapsed time negative.
+ */
+function minutesRemaining(clock) {
+  const raw = String(clock ?? '').trim();
+  if (!raw) return 0;
+  if (raw.includes(':')) {
+    const [mm, ss] = raw.split(':').map((n) => Number(n) || 0);
+    return mm + ss / 60;
+  }
+  const seconds = Number(raw);
+  return Number.isFinite(seconds) ? seconds / 60 : 0;
+}
+
 export function elapsedFraction(g) {
   if (!g || g.state === 'pre') return 0;
   if (g.state === 'post') return 1;
   const regulation = 4;
   const minutes = g.sport === 'nba' ? 12 : 15;
-  const [mm, ss] = String(g.clock || '0:00').split(':').map((n) => Number(n) || 0);
-  const remainingInPeriod = mm + ss / 60;
+  const remainingInPeriod = minutesRemaining(g.clock);
   const period = Math.max(1, g.period || 1);
   const played = (period - 1) * minutes + (minutes - remainingInPeriod);
   return Math.max(0, Math.min(1, played / (regulation * minutes)));

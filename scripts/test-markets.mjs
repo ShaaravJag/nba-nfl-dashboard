@@ -1,7 +1,7 @@
 // Verifies settlement against a real finished game so the maths can be checked
 // without waiting for tip-off.
 import { loadGame } from '../api/_espn.js';
-import { evaluateLeg, betStatus, payoutFor, combineOdds, formatOdds } from '../public/markets.js';
+import { evaluateLeg, betStatus, payoutFor, combineOdds, formatOdds, elapsedFraction } from '../public/markets.js';
 
 const EVENT = process.argv[2] || '401909861'; // LAL 132 @ UTAH 123, 2026-10-25
 const game = await loadGame('nba', EVENT);
@@ -90,6 +90,22 @@ check('two -110 legs combine to about +264', combineOdds([-110, -110]), 264);
 check('explicit payout wins over odds', payoutFor({ stake: 10, americanOdds: 650, payout: 80 }), 80);
 check('leg odds priced in decimal space, no rounding loss',
   payoutFor({ stake: 10, legs: [{ americanOdds: -110 }, { americanOdds: -110 }] }), 36.45);
+
+// --- period clock formats -------------------------------------------------
+// ESPN drops the colon inside the last minute of a period, which used to send
+// elapsed time negative and silently kill the pace projection.
+{
+  const frac = (clock, period = 1) => elapsedFraction({ sport: 'nba', state: 'in', period, clock });
+  const approx = (a, b) => Math.abs(a - b) < 0.005;
+
+  check('clock 12:00 at tip is 0 elapsed', frac('12:00'), 0);
+  check('clock 6:00 in Q1 is an eighth elapsed', approx(frac('6:00'), 0.125), true);
+  check('sub-minute clock counts as nearly a full period', approx(frac('56.2'), 0.2305), true);
+  check('sub-minute clock beats the start of the period', frac('56.2') > frac('6:00'), true);
+  check('0.4 left in Q1 is a quarter of the game', approx(frac('0.4'), 0.2497), true);
+  check('Q3 sub-minute clock keeps the periods already played', approx(frac('30.0', 3), 0.7396), true);
+  check('an empty clock does not go negative', frac('') >= 0, true);
+}
 
 console.log(`\n${failures === 0 ? 'All checks passed.' : `${failures} FAILED`}\n`);
 process.exit(failures === 0 ? 0 : 1);
