@@ -1,6 +1,7 @@
 // Verifies the box score and scoreboard normalizers against real finished games
 // (stable numbers) plus a synthetic stretch of plays for the scoring-run maths.
 import { loadBox, scoringRun, fetchJson, scoreboardUrl, normalizeScoreboard, weekInfo } from '../api/_espn.js';
+import { boxScoreHtml } from '../public/scores.js';
 
 let failures = 0;
 function check(label, actual, expected) {
@@ -82,6 +83,48 @@ check('each final has exactly one winner', board.every((g) => g.home.winner !== 
 check('League Pass never wins the broadcast pick', board.some((g) => /league pass/i.test(g.broadcast || '')), false);
 const week = weekInfo(await fetchJson(scoreboardUrl('nfl')));
 check('NFL week has a label, dates and bounds', [Boolean(week.label), Boolean(week.detail), week.first, week.last], [true, true, 1, 18]);
+
+// --- box score layout: On court while live, Starters otherwise ---------------
+{
+  // Split the team table into sections: title, players in order, and which
+  // players carry the starter dot.
+  const sections = (html) => {
+    const table = html.slice(html.indexOf('<table class="box">'), html.indexOf('</table>', html.indexOf('<table class="box">')));
+    return table.split('<tr class="sec">').slice(1).map((part) => ({
+      title: (part.match(/<th class="name">([^<]*)<\/th>/) || [])[1],
+      players: [...part.matchAll(/<span class="pn">([^<]*)<\/span>/g)].map((m) => m[1]),
+      dotted: [...part.matchAll(/<span class="starter-dot"[^>]*><\/span><span class="pn">([^<]*)<\/span>/g)].map((m) => m[1]),
+    }));
+  };
+  const render = (box) => boxScoreHtml(box, { side: 'away', tracked: new Map(), error: null, from: 'games' });
+  const names = (rows) => rows.map((r) => r.short);
+
+  const final = render(nba);
+  console.log('');
+  check('final: ESPN\'s Starters and Bench', sections(final).map((x) => x.title), ['Starters', 'Bench']);
+  check('final: no starter dots, the heading says it', final.includes('starter-dot'), false);
+
+  // The same box mid-game, with three starters and two subs on the floor.
+  const live = structuredClone(nba);
+  live.state = 'in';
+  const rows = live.teams[0].groups[0].rows;
+  const starters = rows.filter((r) => r.starter);
+  const subs = rows.filter((r) => !r.starter && !r.dnp);
+  const floor = [...starters.slice(0, 3), ...subs.slice(0, 2)];
+  for (const r of rows) r.onCourt = floor.includes(r);
+  const html = render(live);
+  const [court, bench] = sections(html);
+  check('live: the first section is On court', court?.title, 'On court');
+  check('live: On court holds exactly the five on the floor', court?.players, names(rows.filter((r) => r.onCourt)));
+  check('live: starters who are sitting lead the Bench', bench?.players.slice(0, 2), names(starters.slice(3)));
+  check('live: the dot marks every starter, wherever he is', [...court.dotted, ...bench.dotted].sort(), names(starters).sort());
+  check('live: subs on the floor carry no dot', court.dotted.filter((n) => names(subs.slice(0, 2)).includes(n)), []);
+  check('live: a legend says what the dot means', html.includes('Started the game'), true);
+
+  const unknown = structuredClone(live);
+  for (const r of unknown.teams[0].groups[0].rows) r.onCourt = false;
+  check('live with no lineup falls back to Starters', sections(render(unknown)).map((x) => x.title), ['Starters', 'Bench']);
+}
 
 console.log(`\n${failures === 0 ? 'All checks passed.' : `${failures} FAILED`}\n`);
 process.exit(failures === 0 ? 0 : 1);

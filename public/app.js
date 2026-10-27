@@ -32,7 +32,8 @@ const state = {
   draft: newDraft(prefs.book),
   picker: newPicker(),
   scores: newScores(prefs.scoresSport),
-  box: null,          // { sport, id, data, side, from, error } while a box score is open
+  box: null,          // { sport, id, data, side, from, pushed, scrollTop, error }: the last box score opened
+  gamesView: 'list',  // what the Games tab shows when you come back to it: 'list' or 'game'
 };
 
 function load(key, fallback) {
@@ -797,33 +798,85 @@ function toast(msg) {
 const TABS = ['live', 'games', 'add', 'history', 'settings'];
 
 function go(tab) {
+  // Leaving a box score: remember where you were on it, and note that the
+  // replaceState below overwrites its history entry.
+  if (state.tab === 'game' && state.box) {
+    state.box.scrollTop = $('#view').scrollTop;
+    state.box.pushed = false;
+  }
   state.tab = tab;
   history.replaceState(null, '', `#${tab}`);
   render();
   startView();
 }
 
+// The tab bar keeps your place: Games reopens the box score you left it on.
+// Tapping Games while that box score is showing goes back to the scoreboard,
+// the way re-tapping a tab works on iPhone.
+function tapTab(tab) {
+  if (tab !== 'games') return go(tab);
+  if (state.tab === 'game') {
+    state.gamesView = 'list';
+    if (state.box?.pushed && state.box.from === 'games') return history.back();
+    return go('games');
+  }
+  if (state.gamesView === 'game' && state.box) return resumeBox();
+  return go('games');
+}
+
 function openGame(sport, id, from) {
   const same = state.box?.id === id;
-  state.box = { sport, id, data: same ? state.box.data : null, side: same ? state.box.side : 'away', from, error: null };
+  state.box = {
+    sport, id, from, pushed: true, scrollTop: 0, error: null,
+    data: same ? state.box.data : null, side: same ? state.box.side : 'away',
+  };
   state.tab = 'game';
+  state.gamesView = 'game';
   history.pushState(null, '', `#game/${sport}/${id}`);
   $('#view').scrollTop = 0;
   render();
   startView();
 }
 
+// Back to the box score the Games tab was left on: same game, same team tab,
+// same scroll. It refetches straight away, since the data went stale meanwhile.
+function resumeBox() {
+  const box = state.box;
+  box.from = 'games';
+  state.tab = 'game';
+  history.replaceState(null, '', `#game/${box.sport}/${box.id}`);
+  render();
+  $('#view').scrollTop = box.scrollTop || 0;
+  startView();
+}
+
+// Leave a box score for wherever it was opened from. Pop its history entry
+// when it still has one, so the laptop's back button stays in step; otherwise
+// there is nothing safe to pop, so switch views directly.
+function closeBox() {
+  state.gamesView = 'list';
+  if (state.box?.pushed) return history.back();
+  go(state.box?.from === 'live' ? 'live' : 'games');
+}
+
 // Reads the hash: #games, #history, #game/nba/401909870 ...
 function route() {
+  const wasBox = state.tab === 'game';
   const m = location.hash.match(/^#game\/(nba|nfl)\/(\d+)$/);
   if (m) {
     const [, sport, id] = m;
     if (state.box?.id !== id) state.box = { sport, id, data: null, side: 'away', from: null, error: null };
     state.tab = 'game';
+    state.gamesView = 'game';
   } else {
     const tab = location.hash.slice(1);
     state.tab = TABS.includes(tab) ? tab : 'live';
+    // The browser's back button away from a box score closes it, like Back.
+    if (wasBox || state.tab === 'games') state.gamesView = 'list';
   }
+  // Reached by a reload or the browser's back/forward: what sits behind this
+  // entry is unknown, so Back switches views rather than popping history.
+  if (state.box) state.box.pushed = false;
   render();
   startView();
 }
@@ -834,7 +887,7 @@ document.addEventListener('click', async (ev) => {
   const t = ev.target.closest('[data-tab],[data-goto],[data-del],[data-pick-player],[data-pick-game],[data-market],[data-team],[data-rm-leg],[data-manual],[data-open-game],[data-sport],[data-day],[data-week],[data-box-side],[data-back],[data-set-payout],button');
   if (!t) return;
 
-  if (t.dataset.tab) return go(t.dataset.tab);
+  if (t.dataset.tab) return tapTab(t.dataset.tab);
   if (t.dataset.goto) return go(t.dataset.goto);
   if (t.id === 'btn-settings') return go('settings');
   if (t.id === 'btn-refresh') { await Promise.all([poll(), refreshView()]); toast('Refreshed'); return; }
@@ -844,12 +897,7 @@ document.addEventListener('click', async (ev) => {
     if (sport && id) openGame(sport, id, state.tab);
     return;
   }
-  if (t.dataset.back !== undefined) {
-    // Came here by tapping in the app: step back to that screen. Arrived by a
-    // link or a reload: there is nothing to go back to, so land on Games.
-    if (state.box?.from) history.back(); else go('games');
-    return;
-  }
+  if (t.dataset.back !== undefined) return closeBox();
   if (t.dataset.setPayout) {
     const bet = state.bets.find((b) => b.id === t.dataset.setPayout);
     if (!bet?.result) return;

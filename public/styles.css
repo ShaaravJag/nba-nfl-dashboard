@@ -343,7 +343,10 @@ table.box { width: max-content; min-width: 100%; border-collapse: separate; bord
 .box tr.sec .name { background: var(--card); text-transform: uppercase; color: var(--muted); }
 .box .pn { font-weight: 600; color: var(--text); }
 .box .jn { margin-left: 5px; font-size: 10.5px; color: var(--dim); }
-.box .oncourt { display: inline-block; margin-right: 6px; vertical-align: middle; }
+/* In a live box score the five on the floor lead the table, so the dot marks
+   who started the game rather than who is playing. */
+.starter-dot { display: inline-block; width: 7px; height: 7px; margin-right: 6px; border-radius: 50%; background: var(--green); vertical-align: middle; flex: none; }
+.box-legend { display: flex; align-items: center; margin: 8px 2px 0; font-size: 11px; color: var(--dim); }
 .box .ej { margin-left: 5px; padding: 1px 4px; border-radius: 4px; font-size: 9px; font-weight: 800; color: var(--red); background: rgba(255,77,94,.14); }
 .box tr.tot td { font-weight: 700; background: var(--card); }
 .box tr.pct td { font-size: 11px; color: var(--muted); background: var(--card); }

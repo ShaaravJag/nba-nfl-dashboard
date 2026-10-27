@@ -174,9 +174,10 @@ function linescoreHtml(b) {
     <tbody>${[b.away, b.home].map((s) => `<tr><td class="ls-team">${esc(s.abbr)}</td>${cells(s)}<td class="ls-t">${s.score}</td></tr>`).join('')}</tbody></table>`;
 }
 
-function playerRowHtml(r, labels, colKey, tracked, state) {
+function playerRowHtml(r, labels, colKey, tracked, state, starterDot = false) {
   const marks = tracked.get(r.id);
-  const name = `<td class="name">${r.onCourt ? '<span class="oncourt"></span>' : ''}<span class="pn">${esc(r.short)}</span>`
+  const dot = starterDot && r.starter ? '<span class="starter-dot" title="Started the game"></span>' : '';
+  const name = `<td class="name">${dot}<span class="pn">${esc(r.short)}</span>`
     + `${r.jersey ? `<span class="jn">#${esc(r.jersey)}</span>` : ''}${r.ejected ? '<span class="ej">EJ</span>' : ''}</td>`;
   if (r.dnp) {
     // ESPN flags unused players DNP mid-game too; its site only calls it a DNP
@@ -204,11 +205,19 @@ function teamTablesHtml(b, team, tracked) {
   if (!team?.groups.length) return '<div class="empty"><div class="note">No stats yet.</div></div>';
   if (b.sport === 'nba') {
     const g = team.groups[0];
-    const row = (r) => playerRowHtml(r, g.labels, (l) => l, tracked, b.state);
+    // While the game is on, the five on the floor lead the table and a dot marks
+    // who started. Before tip-off and after the final there is no floor, so it's
+    // ESPN's own Starters and Bench -- also the fallback if the lineup is unknown.
+    const onFloor = b.state === 'in' ? g.rows.filter((r) => r.onCourt) : [];
+    const live = onFloor.length > 0;
+    const top = live ? onFloor : g.rows.filter((r) => r.starter);
+    const rest = g.rows.filter((r) => !top.includes(r));    // ESPN order: sitting starters, subs, DNPs
+    const row = (r) => playerRowHtml(r, g.labels, (l) => l, tracked, b.state, live);
     return `<div class="box-scroll" data-scroll-key="${esc(team.abbr)}:players"><table class="box">
-      ${headRow('Starters', g.labels)}${g.rows.filter((r) => r.starter).map(row).join('')}
-      ${headRow('Bench', g.labels)}${g.rows.filter((r) => !r.starter).map(row).join('')}
-      ${totalsRows(g)}</table></div>`;
+      ${headRow(live ? 'On court' : 'Starters', g.labels)}${top.map(row).join('')}
+      ${headRow('Bench', g.labels)}${rest.map(row).join('')}
+      ${totalsRows(g)}</table></div>
+      ${live ? '<div class="box-legend"><span class="starter-dot"></span>Started the game</div>' : ''}`;
   }
   return team.groups.map((g) => {
     const row = (r) => playerRowHtml(r, g.labels, (l) => `${g.name}:${l}`, tracked, b.state);
