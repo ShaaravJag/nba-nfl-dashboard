@@ -330,6 +330,8 @@ textarea { min-height: 120px; resize: vertical; font-family: ui-monospace, SFMon
 .run-line b { color: var(--amber); }
 .run-line span { color: var(--dim); }
 .box-seg { margin-top: 12px; }
+/* Four tabs on a phone (Feed, both teams, Team stats): keep each label on one line. */
+.box-seg button { padding: 7px 6px; white-space: nowrap; }
 
 /* Full-bleed on a phone: the stats scroll sideways under a pinned name column. */
 .box-scroll { margin: 12px -14px 0; overflow-x: auto; -webkit-overflow-scrolling: touch; }
@@ -389,3 +391,66 @@ table.box { width: max-content; min-width: 100%; border-collapse: separate; bord
 .void-tag { padding: 2px 6px; border-radius: 5px; font-size: 10px; font-weight: 700; letter-spacing: .02em; color: var(--muted); background: var(--card-2); }
 .repriced { color: var(--amber); font-weight: 600; }
 .hist-row .amt.muted { color: var(--muted); font-weight: 600; }
+
+/* ---------- live feed ---------- */
+@media (min-width: 1024px) { main#view.wrap.wide { max-width: 1240px; } }
+.game-cols { display: grid; grid-template-columns: minmax(0, 1fr) 380px; gap: 18px; align-items: start; margin-top: 12px; }
+.game-cols .box-seg { margin-top: 0; }
+.col-box { min-width: 0; }
+.col-box .box-scroll { margin: 12px 0 0; }
+.col-feed {
+  position: sticky; top: 8px; max-height: calc(100dvh - 150px); overflow-y: auto; overscroll-behavior: contain;
+  background: var(--card); border: 1px solid var(--line); border-radius: var(--radius);
+}
+
+.feed { margin-top: 10px; background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); overflow: hidden; }
+.col-feed .feed { margin-top: 0; border: 0; border-radius: 0; background: none; }
+.fd-wp { display: flex; align-items: center; gap: 8px; padding: 10px 12px; font-size: 11px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.fd-wp b { color: var(--text); }
+.fd-wp-bar { flex: 1; display: flex; height: 6px; border-radius: 3px; overflow: hidden; background: var(--line); }
+.fd-wp-bar i { display: block; height: 100%; }
+.fd-list { display: flex; flex-direction: column; }
+.fd-item { border-top: 1px solid var(--line); }
+.fd-item.fresh { animation: fdIn 1.6s ease-out 1; }
+@keyframes fdIn { 0% { background-color: rgba(59,130,246,.22); } 100% { background-color: transparent; } }
+
+.fd-card { display: grid; grid-template-columns: 44px minmax(0, 1fr); gap: 10px; padding: 11px 12px; }
+.fd-card.tracked { box-shadow: inset 3px 0 0 var(--accent); }
+.fd-avatar { position: relative; width: 44px; height: 44px; }
+.fd-face { display: block; width: 44px; height: 44px; border-radius: 50%; object-fit: cover; object-position: top; background: var(--card-2); }
+.fd-face.logo { object-fit: contain; padding: 7px; }
+.fd-badge { position: absolute; right: -3px; bottom: -3px; width: 19px; height: 19px; padding: 2px; border-radius: 50%; object-fit: contain; background: var(--card); }
+.fd-main { min-width: 0; }
+.fd-meta { display: flex; align-items: center; gap: 8px; font-size: 11px; color: var(--dim); font-variant-numeric: tabular-nums; }
+.fd-swing { margin-left: auto; font-weight: 700; white-space: nowrap; }
+.fd-swing.up { color: var(--green); }
+.fd-swing.down { color: var(--red); }
+.fd-title { margin-top: 2px; font-size: 15px; font-weight: 700; letter-spacing: -.01em; }
+.fd-line { margin-top: 2px; font-size: 12.5px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.fd-line b { font-weight: 600; color: var(--text); }
+.fd-line.sub { font-size: 12px; color: var(--dim); }
+.fd-notes { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 6px; }
+.fd-note { padding: 2px 7px; border-radius: 6px; font-size: 11px; font-weight: 600; color: var(--muted); background: var(--card-2); }
+.fd-note.score { color: var(--green); background: rgba(34,210,106,.14); }
+.fd-mark { padding: 2px 7px; border-radius: 6px; font-size: 11px; font-weight: 700; }
+.fd-mark.ok { color: var(--green); background: rgba(34,210,106,.16); }
+.fd-mark.bad { color: var(--red); background: rgba(255,77,94,.14); }
+
+.fd-row { display: flex; gap: 10px; padding: 8px 12px; font-size: 12px; color: var(--muted); }
+.fd-row b { color: var(--text); }
+.fd-time { flex: none; min-width: 58px; color: var(--dim); font-variant-numeric: tabular-nums; }
+.fd-divider { display: flex; justify-content: space-between; gap: 10px; padding: 8px 12px; font-size: 11px; font-weight: 700; letter-spacing: .05em; text-transform: uppercase; color: var(--muted); background: var(--card-2); }
+
+.fd-drive { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 8px; padding: 9px 12px; border-top: 1px solid var(--line); font-size: 12px; color: var(--muted); background: var(--card-2); }
+.fd-drive b { color: var(--text); }
+.fd-drive.current > span:first-of-type { font-weight: 700; color: var(--red); }
+.fd-drive.score > span:first-of-type { font-weight: 700; color: var(--green); }
+.fd-desc { margin-left: auto; color: var(--dim); }
+.fd-play { padding: 9px 12px; }
+.fd-play.scoring { box-shadow: inset 3px 0 0 var(--green); }
+.fd-text { margin-top: 2px; font-size: 13px; line-height: 1.4; }
+.fd-more { display: block; margin: 12px auto; }
+
+.fd-strip { display: flex; align-items: center; gap: 8px; width: 100%; margin-top: 10px; padding: 9px 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--card); font-size: 12px; color: var(--muted); text-align: left; }
+.fd-strip-text { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.fd-strip-go { color: var(--dim); font-size: 15px; }

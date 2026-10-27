@@ -252,7 +252,7 @@ function pregameHtml(b) {
     <div class="empty"><div class="note">The box score starts at ${b.sport === 'nfl' ? 'kickoff' : 'tip-off'}.</div></div>`;
 }
 
-export function boxScoreHtml(b, { side, tracked, error, from }) {
+export function boxScoreHtml(b, { side, tracked, error, from, wide = false, feedPanel = '', strip = '' }) {
   const back = `<button class="back-btn" data-back>&#8249; ${from === 'live' ? 'Bets' : 'Games'}</button>`;
   if (!b) {
     return `${back}<div class="empty"><div class="note">${esc(error || 'Loading box score…')}</div></div>`;
@@ -264,12 +264,27 @@ export function boxScoreHtml(b, { side, tracked, error, from }) {
   }
   if (b.state === 'pre') {
     parts.push(pregameHtml(b));
+    return parts.join('');
+  }
+
+  // Wide screens put the feed beside the box score. On a phone it's the first
+  // tab in one row with the teams, the way REAL does it, and the team tabs get
+  // a one-line strip with the newest play.
+  const onFeed = !wide && side === 'feed';
+  const shown = side === 'feed' ? 'away' : side;
+  const tab = (key, label) => {
+    const on = key === 'feed' ? onFeed : !onFeed && key === shown;
+    return `<button class="${on ? 'on' : ''}" data-box-side="${key}">${esc(label)}</button>`;
+  };
+  const teamTabs = tab('away', b.away.abbr) + tab('home', b.home.abbr) + tab('team', 'Team stats');
+  const tables = shown === 'team' ? teamStatsHtml(b) : teamTablesHtml(b, b.teams[shown === 'home' ? 1 : 0], tracked);
+  if (wide) {
+    parts.push(`<div class="game-cols">
+      <div class="col-box"><div class="seg box-seg">${teamTabs}</div>${tables}</div>
+      <aside class="col-feed">${feedPanel}</aside></div>`);
   } else {
-    parts.push(`<div class="seg box-seg">
-      <button class="${side === 'away' ? 'on' : ''}" data-box-side="away">${esc(b.away.abbr)}</button>
-      <button class="${side === 'home' ? 'on' : ''}" data-box-side="home">${esc(b.home.abbr)}</button>
-      <button class="${side === 'team' ? 'on' : ''}" data-box-side="team">Team stats</button></div>`);
-    parts.push(side === 'team' ? teamStatsHtml(b) : teamTablesHtml(b, b.teams[side === 'home' ? 1 : 0], tracked));
+    parts.push(`<div class="seg box-seg">${tab('feed', 'Feed')}${teamTabs}</div>`);
+    parts.push(onFeed ? feedPanel : strip + tables);
   }
   return parts.join('');
 }

@@ -1,6 +1,7 @@
 // Shared ESPN fetching + normalization. Underscore prefix keeps Vercel from
 // routing this file as an endpoint.
 import { minutesRemaining } from '../public/markets.js';
+import { buildFeed } from './_feed.js';
 
 export const SPORTS = {
   nba: { path: 'basketball/nba', periods: 4, periodName: 'Q', label: 'NBA' },
@@ -439,7 +440,7 @@ export function scoringRun(summary, home, away) {
   };
 }
 
-export function normalizeBox(sport, summary) {
+export function normalizeBox(sport, summary, feedLimit = 80) {
   const comp = summary?.header?.competitions?.[0] || {};
   const status = comp.status || {};
   const type = status.type || {};
@@ -481,7 +482,7 @@ export function normalizeBox(sport, summary) {
 
   const pick = summary?.pickcenter?.[0];
   const header = (side) => ({
-    id: side.id, abbr: side.abbr, name: side.name, short: side.short, logo: side.logo,
+    id: side.id, abbr: side.abbr, name: side.name, short: side.short, logo: side.logo, color: side.color,
     score: side.score, record: side.record, winner: side.winner, linescores: side.linescores,
   });
   return {
@@ -501,9 +502,11 @@ export function normalizeBox(sport, summary) {
     injuries: injuryEntries(summary),
     odds: state === 'pre' && pick ? { spread: pick.details || null, total: pick.overUnder ?? null } : null,
     run: sport === 'nba' && state === 'in' ? scoringRun(summary, home, away) : null,
+    // The play-by-play rides along: every layout of the game view shows some of it.
+    feed: buildFeed(sport, summary, feedLimit),
   };
 }
 
-export async function loadBox(sport, eventId) {
-  return normalizeBox(sport, await fetchJson(summaryUrl(sport, eventId)));
+export async function loadBox(sport, eventId, feedLimit = 80) {
+  return normalizeBox(sport, await fetchJson(summaryUrl(sport, eventId)), feedLimit);
 }

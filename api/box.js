@@ -1,7 +1,7 @@
-// GET /api/box?sport=nba&id=401909870
+// GET /api/box?sport=nba&id=401909870[&limit=80]
 //
-// One game's full box score, trimmed from ESPN's ~500KB summary down to the
-// tables the box score view draws.
+// One game's full box score plus its play-by-play feed (the newest `limit`
+// plays), trimmed from ESPN's ~500KB summary down to what the game view draws.
 import { SPORTS, loadBox } from './_espn.js';
 
 export default async function handler(req, res) {
@@ -13,9 +13,10 @@ export default async function handler(req, res) {
     return res.status(400).json({ error: 'Need a sport (nba or nfl) and a numeric game id' });
   }
 
+  const limit = Math.min(1000, Math.max(1, Math.floor(Number(url.searchParams.get('limit'))) || 80));
   let box;
   try {
-    box = await loadBox(sport, id);
+    box = await loadBox(sport, id, limit);
   } catch (err) {
     res.setHeader('Cache-Control', 'no-store');
     return res.status(502).json({ error: String(err?.message || err) });

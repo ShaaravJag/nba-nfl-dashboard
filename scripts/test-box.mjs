@@ -32,7 +32,7 @@ check('team stats present for both sides', nba.teams.map((t) => t.teamStats.leng
 check('linescores add up to the score', [nba.away, nba.home].map((s) => s.linescores.reduce((a, b) => a + b, 0) === s.score), [true, true]);
 check('records come through', [nba.away.record, nba.home.record].every(Boolean), true);
 check('no run reported once final', nba.run, null);
-check('box payload stays under 15KB', JSON.stringify(nba).length < 15000, true);
+check('box payload, feed aside, stays under 15KB', JSON.stringify({ ...nba, feed: undefined }).length < 15000, true);
 
 // --- NFL: NE @ CHI, 2026-10-25 ----------------------------------------------
 const nfl = await loadBox('nfl', '401873010');

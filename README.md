@@ -23,6 +23,15 @@ DNP rows, team totals and team stats -- refreshing every 5s while the game is li
 Players on your open bets are marked, with the stat each bet rides on outlined.
 Both views poll on their own timer, and only while you are looking at them.
 
+Every game also has a **live feed**. NBA plays are replayed in order into each
+player's running line, so a card reads "B. Adebayo · 1/8 FG" with details that
+show only when they matter: shooting streaks, milestones, foul trouble and the
+bonus, lead changes, runs, team turnover counts. Each play's swing comes from
+ESPN's win probability. The play where one of your legs cleared or busted is
+marked. NFL is drive by drive, with down and distance. On a phone the feed is
+the first tab, and the team tabs carry a one-line latest-play strip; on a wide
+screen it sits beside the box score.
+
 Leg tiles also flag foul trouble, blowouts that could sit the starters, and players
 ruled out or not playing, and each parlay gets a one-line summary of what it still
 needs. The alerts are information only; settlement never reads them. A player who
@@ -38,10 +47,12 @@ actually doesn't play is different: that leg is voided and the parlay re-priced
 | `public/sync.js` | Cross-device sync over Supabase REST. No client library. |
 | `public/import-prompt.js` | The screenshot→JSON prompt, with its market enum generated from the catalog. |
 | `public/scores.js` | HTML for the Games tab and the box score. Pure functions of the data. |
+| `public/feed.js` | HTML for the live feed, and the bet-leg markers. |
 | `api/_espn.js` | ESPN fetching and normalization. |
 | `api/live.js` | Trimmed live box scores for the games you have bets on. |
 | `api/scores.js` | One sport's scoreboard: NBA by day, NFL by week. |
-| `api/box.js` | One game's full box score, in ESPN's own columns. |
+| `api/box.js` | One game's full box score, in ESPN's own columns, plus its feed. |
+| `api/_feed.js` | Replays the play-by-play into the feed's running lines and details. |
 | `api/slate.js` | Today's games plus a searchable player index. |
 
 ## Running locally
@@ -53,7 +64,8 @@ npm test        # settlement, alerts and box scores against real finished games
 
 `npm test` replays a completed NBA game through the settlement logic and checks the
 box-score tables against known final numbers, so the maths can be checked without
-waiting for tip-off.
+waiting for tip-off. The feed suite replays whole games play by play and requires
+the result to equal ESPN's final box score for every player and stat.
 
 ## Adding bets
 
@@ -95,6 +107,9 @@ than the commit author.
   being dropped.
 - FanDuel has no public API. Bets are entered manually or imported from screenshots.
 - ESPN publishes no NBA possession, so only NFL tiles show who has the ball.
+- NFL plays name no players in a form that can be counted, so the NFL feed has
+  no per-player running lines or streaks. ESPN occasionally corrects a stat after
+  the game without changing the play text; the feed follows the plays.
 - **Void legs.** A player prop goes void once it's certain the player won't play:
   ruled out on ESPN's injury report with the game under way, or, NBA only, no
   minutes by the final. The leg drops out and the parlay is re-priced the way books

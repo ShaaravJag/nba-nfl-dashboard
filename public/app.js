@@ -5,6 +5,7 @@ import {
 import { createSync } from './sync.js';
 import { IMPORT_PROMPT } from './import-prompt.js';
 import { scoreboardHtml, boxScoreHtml, MARKET_COLUMNS } from './scores.js';
+import { feedHtml, latestPlayHtml, legMarkers } from './feed.js';
 
 const BETS_KEY = 'bt.bets.v2';
 const PREFS_KEY = 'bt.prefs.v1';
@@ -176,7 +177,7 @@ async function loadBoxScore() {
   if (!box) return;
   const { sport, id } = box;
   try {
-    const res = await fetch(`/api/box?sport=${sport}&id=${id}`);
+    const res = await fetch(`/api/box?sport=${sport}&id=${id}&limit=${box.limit || FEED_STEP}`);
     if (!res.ok) throw new Error(`box ${res.status}`);
     const data = await res.json();
     if (state.box?.id !== id) return;
@@ -297,6 +298,7 @@ function beep(up) {
 // ---------------------------------------------------------------- render
 
 function render() {
+  $('#view').classList.toggle('wide', state.tab === 'game' && wideMQ.matches);
   const tab = state.tab === 'game' ? 'games' : state.tab;   // a box score lives under Games
   document.querySelectorAll('.tab').forEach((t) => t.classList.toggle('active', t.dataset.tab === tab));
   if (state.tab === 'live') renderLive();
@@ -488,20 +490,71 @@ function renderGames() {
   view.scrollTop = top;
 }
 
+/** Legs on your open bets that ride on this game. */
+function openLegsOn(eventId) {
+  return state.bets.filter((b) => !b.result).flatMap((b) => b.legs).filter((l) => l.eventId === eventId);
+}
+
+// Feed entries newest first, whichever sport.
+const feedIds = (data) => (data?.feed?.items || data?.feed?.drives?.flatMap((d) => d.plays) || []).map((x) => x.id);
+
+// The feed card you're reading, so it can stay put when new plays land above
+// it. At the newest play already, there's nothing to hold: new plays come in.
+function feedAnchor(scroller) {
+  if (!scroller) return null;
+  const top = scroller.getBoundingClientRect().top;
+  const cards = [...scroller.querySelectorAll('[data-fd-id]')];
+  const first = cards.find((n) => n.getBoundingClientRect().bottom > top + 1);
+  if (!first || first === cards[0]) return null;
+  return { id: first.dataset.fdId, offset: first.getBoundingClientRect().top - top };
+}
+
+function restoreAnchor(scroller, anchor) {
+  if (!scroller || !anchor) return;
+  const card = scroller.querySelector(`[data-fd-id="${CSS.escape(anchor.id)}"]`);
+  if (card) scroller.scrollTop += card.getBoundingClientRect().top - scroller.getBoundingClientRect().top - anchor.offset;
+}
+
 function renderBox() {
   const view = $('#view');
-  const top = view.scrollTop;
-  // The stat tables scroll sideways and a re-render builds new elements, so
-  // carry each table's position across -- otherwise every 5s refresh would
-  // snap the table back to the names column.
-  const lefts = new Map([...view.querySelectorAll('[data-scroll-key]')].map((n) => [n.dataset.scrollKey, n.scrollLeft]));
+  const wide = wideMQ.matches;
+  view.classList.toggle('wide', wide);
   const box = state.box || {};
-  view.innerHTML = boxScoreHtml(box.data, { side: box.side || 'away', tracked: trackedFor(box.id), error: box.error, from: box.from });
+  const data = box.data;
+
+  // Everything a 5s refresh would otherwise throw away: page scroll, each
+  // table's sideways scroll, the feed column's scroll, the card being read.
+  const top = view.scrollTop;
+  const lefts = new Map([...view.querySelectorAll('[data-scroll-key]')].map((n) => [n.dataset.scrollKey, n.scrollLeft]));
+  const colTop = view.querySelector('.col-feed')?.scrollTop || 0;
+  const anchor = feedAnchor(wide ? view.querySelector('.col-feed') : view);
+
+  // Plays that arrived since the last render flash once.
+  const ids = feedIds(data);
+  const fresh = new Set();
+  if (box.seen) for (const id of ids) { if (box.seen.has(id)) break; fresh.add(id); }
+  if (ids.length) box.seen = new Set(ids);
+
+  const legs = openLegsOn(box.id);
+  const feed = data?.feed;
+  const feedPanel = data ? feedHtml(data, {
+    markers: legMarkers(feed?.items, legs, !!feed && feed.total <= (feed.items?.length || 0)),
+    tracked: new Set(legs.map((l) => l.playerId).filter(Boolean)),
+    fresh,
+  }) : '';
+  view.innerHTML = boxScoreHtml(data, {
+    side: box.side || 'feed', tracked: trackedFor(box.id), error: box.error, from: box.from,
+    wide, feedPanel, strip: data ? latestPlayHtml(data) : '',
+  });
+
   for (const n of view.querySelectorAll('[data-scroll-key]')) {
     const left = lefts.get(n.dataset.scrollKey);
     if (left) n.scrollLeft = left;
   }
   view.scrollTop = top;
+  const col = view.querySelector('.col-feed');
+  if (col) col.scrollTop = colTop;
+  restoreAnchor(wide ? col : view, anchor);
 }
 
 // What a settled bet made or lost. A won parlay with a void leg pays its
@@ -796,6 +849,15 @@ function toast(msg) {
 }
 
 const TABS = ['live', 'games', 'add', 'history', 'settings'];
+const FEED_STEP = 80;     // plays per page of the feed
+
+// A new game opens on the kind of tab you used last: the feed (REAL's default)
+// or a team's box score.
+const firstSide = () => (state.prefs.gameTab === 'box' ? 'away' : 'feed');
+
+// Wide screens show the feed beside the box score instead of as a tab.
+const wideMQ = window.matchMedia('(min-width: 1024px)');
+wideMQ.addEventListener('change', () => { if (state.tab === 'game') renderBox(); });
 
 function go(tab) {
   // Leaving a box score: remember where you were on it, and note that the
@@ -828,7 +890,8 @@ function openGame(sport, id, from) {
   const same = state.box?.id === id;
   state.box = {
     sport, id, from, pushed: true, scrollTop: 0, error: null,
-    data: same ? state.box.data : null, side: same ? state.box.side : 'away',
+    data: same ? state.box.data : null, side: same ? state.box.side : firstSide(),
+    limit: same ? state.box.limit : FEED_STEP,
   };
   state.tab = 'game';
   state.gamesView = 'game';
@@ -865,7 +928,7 @@ function route() {
   const m = location.hash.match(/^#game\/(nba|nfl)\/(\d+)$/);
   if (m) {
     const [, sport, id] = m;
-    if (state.box?.id !== id) state.box = { sport, id, data: null, side: 'away', from: null, error: null };
+    if (state.box?.id !== id) state.box = { sport, id, data: null, side: firstSide(), limit: FEED_STEP, from: null, error: null };
     state.tab = 'game';
     state.gamesView = 'game';
   } else {
@@ -884,7 +947,7 @@ function route() {
 window.addEventListener('popstate', route);
 
 document.addEventListener('click', async (ev) => {
-  const t = ev.target.closest('[data-tab],[data-goto],[data-del],[data-pick-player],[data-pick-game],[data-market],[data-team],[data-rm-leg],[data-manual],[data-open-game],[data-sport],[data-day],[data-week],[data-box-side],[data-back],[data-set-payout],button');
+  const t = ev.target.closest('[data-tab],[data-goto],[data-del],[data-pick-player],[data-pick-game],[data-market],[data-team],[data-rm-leg],[data-manual],[data-open-game],[data-sport],[data-day],[data-week],[data-box-side],[data-back],[data-set-payout],[data-feed-more],button');
   if (!t) return;
 
   if (t.dataset.tab) return tapTab(t.dataset.tab);
@@ -909,7 +972,19 @@ document.addEventListener('click', async (ev) => {
     persist(); renderHistory();
     return;
   }
-  if (t.dataset.boxSide) { state.box.side = t.dataset.boxSide; renderBox(); return; }
+  if (t.dataset.boxSide) {
+    state.box.side = t.dataset.boxSide;
+    state.prefs.gameTab = t.dataset.boxSide === 'feed' ? 'feed' : 'box';
+    persist({ push: false });
+    renderBox();
+    return;
+  }
+  if (t.dataset.feedMore !== undefined && state.box) {
+    state.box.limit = (state.box.limit || FEED_STEP) + FEED_STEP;
+    t.disabled = true; t.textContent = 'Loading…';
+    await loadBoxScore();
+    return;
+  }
   if (t.dataset.sport) {
     if (t.dataset.sport !== state.scores.sport) {
       state.scores = newScores(t.dataset.sport);

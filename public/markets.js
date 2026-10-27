@@ -299,7 +299,7 @@ const SEVERITY = { bad: 0, warn: 1, info: 2 };
 const DECIDED = new Set(['hit', 'won', 'lost', 'bust', 'push']);
 
 // "Jaren Jackson Jr." -> "Jackson": the name you'd shout at the TV.
-function lastName(name) {
+export function lastName(name) {
   const parts = String(name || '').trim().split(/\s+/);
   while (parts.length > 1 && /^(jr\.?|sr\.?|ii|iii|iv|v)$/i.test(parts[parts.length - 1])) parts.pop();
   return parts[parts.length - 1] || '';
