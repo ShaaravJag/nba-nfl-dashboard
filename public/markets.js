@@ -152,14 +152,14 @@ export function resolveMarket(sport, raw) {
 
 const EMPTY_STATS = {};
 
-// Share of the game already played, used for the pace projection.
 /**
  * Minutes left in the current period. ESPN changes format inside the final
  * minute -- "9:41" for most of a period, then tenths of a second with no colon
  * at all ("56.2", "0.4") -- so splitting on ':' unconditionally reads 56.2 as
- * fifty-six minutes remaining and sends elapsed time negative.
+ * fifty-six minutes remaining and sends elapsed time negative. Shared with the
+ * server's scoring-run maths so the quirk is handled in one place.
  */
-function minutesRemaining(clock) {
+export function minutesRemaining(clock) {
   const raw = String(clock ?? '').trim();
   if (!raw) return 0;
   if (raw.includes(':')) {
@@ -170,6 +170,7 @@ function minutesRemaining(clock) {
   return Number.isFinite(seconds) ? seconds / 60 : 0;
 }
 
+// Share of the game already played, used for the pace projection.
 export function elapsedFraction(g) {
   if (!g || g.state === 'pre') return 0;
   if (g.state === 'post') return 1;
@@ -268,6 +269,103 @@ export function betStatus(results) {
   if (results.every((r) => r.status === 'won' || r.status === 'push')) return 'won';
   if (results.some((r) => r.status === 'unknown')) return 'live';
   return results.some((r) => r.status === 'live' || r.status === 'hit') ? 'live' : 'pending';
+}
+
+// --- alerts + sweat line -------------------------------------------------
+
+const SEVERITY = { bad: 0, warn: 1, info: 2 };
+const DECIDED = new Set(['hit', 'won', 'lost', 'bust', 'push']);
+
+// "Jaren Jackson Jr." -> "Jackson": the name you'd shout at the TV.
+function lastName(name) {
+  const parts = String(name || '').trim().split(/\s+/);
+  while (parts.length > 1 && /^(jr\.?|sr\.?|ii|iii|iv|v)$/i.test(parts[parts.length - 1])) parts.pop();
+  return parts[parts.length - 1] || '';
+}
+
+/**
+ * Heads-ups on a player leg beyond its number: foul trouble, a blowout that
+ * could sit the starters, a player ruled out. Informational only -- settlement
+ * never reads these. Returns [{ level: 'bad' | 'warn' | 'info', text, void? }],
+ * worst first; `void` marks a leg the book will probably cancel. Foul trouble
+ * helps an under, so it reads as neutral there.
+ */
+export function legAlerts(leg, game, res) {
+  const out = [];
+  const market = MARKETS[leg.market] || resolveMarket(leg.sport, leg.market);
+  if (!game || !market || market.kind !== 'player') return out;
+
+  const player = game.players?.[leg.playerId] || Object.values(game.players || {}).find((p) => p.name === leg.playerName);
+  const status = String(game.injuries?.[leg.playerId]?.status || '');
+  const over = leg.side !== 'under';
+  const decided = DECIDED.has(res?.status);
+  const period = Math.max(1, game.period || 1);
+
+  if (/^out$/i.test(status)) out.push({ level: 'bad', text: 'OUT — leg likely void', void: true });
+  else if (status && game.state === 'pre') out.push({ level: 'warn', text: status });
+
+  // NBA box scores list every dressed player, so a missing or DNP row means he
+  // sat. NFL boxes only list players who recorded a stat -- absence proves
+  // nothing there, so NFL relies on the injury report alone.
+  if (leg.sport === 'nba' && !/^out$/i.test(status) && game.state !== 'pre') {
+    const sat = player ? player.dnp : Object.keys(game.players || {}).length > 0;
+    if (sat && game.state === 'post') out.push({ level: 'bad', text: 'Did not play — likely void', void: true });
+    else if (sat && period >= 3) out.push({ level: 'warn', text: "Hasn't played" });
+  }
+
+  if (game.state === 'in' && !decided) {
+    if (leg.sport === 'nba' && player) {
+      const fouls = player.stats?.pf || 0;
+      // Coaches sit a player at 2 fouls in the 1st, 3 in the 2nd, 4 in the 3rd, 5 late.
+      if (player.ejected) out.push({ level: over ? 'bad' : 'info', text: 'Ejected' });
+      else if (fouls >= 6) out.push({ level: over ? 'bad' : 'info', text: 'Fouled out' });
+      else if (fouls >= Math.min(period, 4) + 1) out.push({ level: over ? 'warn' : 'info', text: `${fouls} fouls` });
+    }
+    const margin = Math.abs((game.home?.score || 0) - (game.away?.score || 0));
+    const blowout = leg.sport === 'nba'
+      ? (period === 3 && margin >= 25) || (period >= 4 && margin >= 20)
+      : period >= 4 && margin >= 21;
+    if (blowout && over) out.push({ level: 'warn', text: 'Blowout — starters may sit' });
+  }
+
+  return out.sort((a, b) => SEVERITY[a.level] - SEVERITY[b.level]);
+}
+
+// What one unfinished leg still needs, in the fewest words.
+function legNeed(leg, res) {
+  const market = MARKETS[leg.market] || resolveMarket(leg.sport, leg.market);
+  if (res.manual || !market) return `${leg.rawLabel || 'manual leg'} (manual)`;
+  const who = market.kind === 'player'
+    ? lastName(leg.playerName)
+    : market.key.endsWith('team_total') ? leg.teamAbbr : market.label.replace(' Points', '');
+  if (LOST_STATES.has(res.status)) return `${who} busted`;
+  if (res.status === 'pending') return `${who} yet to start`;
+  if (market.margin) {
+    const line = market.key.endsWith('moneyline') ? 'ML' : `${leg.line > 0 ? '+' : ''}${leg.line}`;
+    return `${leg.teamAbbr} ${line} · margin ${res.detail}`;
+  }
+  if (market.boolean) return `${who} needs ${market.key.endsWith('anytimeTd') ? 'a TD' : `a ${market.boolean.toLowerCase()}`}`;
+  const stat = market.kind === 'player' ? ` ${market.short.toLowerCase()}` : '';
+  return res.side === 'under'
+    ? `${who} under ${res.line}${stat} (at ${res.value})`
+    : `${who} needs ${res.needed} more${stat}`;
+}
+
+/**
+ * The one line on a parlay you actually read mid-game: how many legs are in
+ * and what the rest still need -- "3 of 4 hit · Davis needs 8 more reb".
+ */
+export function sweatLine(bet, results) {
+  const legs = bet.legs || [];
+  if (!legs.length) return '';
+  if (results.every((r) => r.status === 'pending')) {
+    const games = new Set(legs.map((l) => l.eventId).filter(Boolean)).size || legs.length;
+    return `Waiting on ${games} game${games === 1 ? '' : 's'}`;
+  }
+  const open = legs.map((leg, i) => ({ leg, res: results[i] })).filter(({ res }) => !WON_STATES.has(res.status));
+  if (!open.length) return legs.length === 1 ? 'Hit' : `All ${legs.length} legs hit`;
+  const need = open.length === 1 ? legNeed(open[0].leg, open[0].res) : `${open.length} to go`;
+  return legs.length === 1 ? need : `${legs.length - open.length} of ${legs.length} hit · ${need}`;
 }
 
 // --- odds ---------------------------------------------------------------

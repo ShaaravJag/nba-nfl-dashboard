@@ -16,6 +16,8 @@ const TYPES = {
 const handlers = {
   '/api/live': (await import('../api/live.js')).default,
   '/api/slate': (await import('../api/slate.js')).default,
+  '/api/scores': (await import('../api/scores.js')).default,
+  '/api/box': (await import('../api/box.js')).default,
 };
 
 createServer(async (req, res) => {

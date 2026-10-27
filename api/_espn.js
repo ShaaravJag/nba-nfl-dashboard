@@ -1,5 +1,6 @@
 // Shared ESPN fetching + normalization. Underscore prefix keeps Vercel from
 // routing this file as an endpoint.
+import { minutesRemaining } from '../public/markets.js';
 
 export const SPORTS = {
   nba: { path: 'basketball/nba', periods: 4, periodName: 'Q', label: 'NBA' },
@@ -18,7 +19,16 @@ const base = (sport) => `https://site.api.espn.com/apis/site/v2/sports/${SPORTS[
 
 export const summaryUrl = (sport, eventId) => `${base(sport)}/summary?event=${encodeURIComponent(eventId)}`;
 export const scoreboardUrl = (sport, date) => `${base(sport)}/scoreboard${date ? `?dates=${date}&limit=100` : '?limit=100'}`;
+export const weekUrl = (sport, week, seasonType = 2) => `${base(sport)}/scoreboard?seasontype=${seasonType}&week=${week}&limit=100`;
 export const rosterUrl = (sport, teamId) => `${base(sport)}/teams/${teamId}/roster`;
+
+// The sports day rolls over at 6am Eastern, so a 1am box score still belongs to
+// the previous night's slate.
+export function sportsDay(now = new Date()) {
+  const et = new Date(now.toLocaleString('en-US', { timeZone: 'America/New_York' }));
+  if (et.getHours() < 6) et.setDate(et.getDate() - 1);
+  return `${et.getFullYear()}${String(et.getMonth() + 1).padStart(2, '0')}${String(et.getDate()).padStart(2, '0')}`;
+}
 
 // --- stat normalization -------------------------------------------------
 
@@ -123,13 +133,44 @@ function pickLogo(team) {
   return null;
 }
 
+// The scoreboard calls it `records`, the game summary `record`; either way the
+// season record is the "total" entry.
+function recordOf(competitor) {
+  const list = competitor.records || competitor.record || [];
+  const total = list.find((r) => r.type === 'total' || r.name === 'overall') || list[0];
+  return total?.summary || total?.displayValue || '';
+}
+
+// REAL shows one network per game: the national feed if there is one, else the
+// home team's local channel, else the visitors'. League Pass carries every game
+// and says nothing, so it never wins. Handles both ESPN shapes: the
+// scoreboard's { market: 'home', names: [...] } and the summary's
+// { market: { type: 'Home' }, media: { shortName } }.
+function pickBroadcast(list) {
+  const entries = (list || []).map((b) => ({
+    market: String(b.market?.type || b.market || '').toLowerCase(),
+    names: b.names || [b.media?.shortName].filter(Boolean),
+  }));
+  for (const market of ['national', 'home', 'away']) {
+    for (const entry of entries) {
+      if (entry.market !== market) continue;
+      const name = entry.names.find((n) => n && !/league pass/i.test(n));
+      if (name) return name;
+    }
+  }
+  return null;
+}
+
 function sideOf(competitor) {
   const team = competitor.team || {};
   return {
     id: String(team.id ?? ''),
     abbr: team.abbreviation || team.shortDisplayName || '',
     name: team.displayName || team.name || '',
+    short: team.shortDisplayName || team.name || '',
     score: toNum(competitor.score),
+    record: recordOf(competitor),
+    winner: !!competitor.winner,
     color: team.color ? `#${team.color}` : null,
     logo: pickLogo(team),
     linescores: (competitor.linescores || []).map((l) => toNum(l.displayValue ?? l.value)),
@@ -180,9 +221,11 @@ export function normalizeGame(sport, summary) {
           pos: athlete.position?.abbreviation || entry.position || '',
           starter: !!entry.starter,
           dnp: !!entry.didNotPlay,
+          ejected: !!entry.ejected,
           stats: {},
         });
         if (entry.starter) player.starter = true;
+        if (entry.ejected) player.ejected = true;
         if (!entry.didNotPlay) player.dnp = false;
         Object.assign(player.stats, statsFromGroup(mapping, group.keys, entry.stats || []));
       }
@@ -210,6 +253,7 @@ export function normalizeGame(sport, summary) {
     away,
     possession: possessionId ? String(possessionId) : null,
     players,
+    injuries: Object.fromEntries(injuryEntries(summary).map(({ id, status, detail }) => [id, { status, detail }])),
   };
 }
 
@@ -225,16 +269,241 @@ export function normalizeScoreboard(sport, board) {
     const competitors = comp.competitors || [];
     const home = sideOf(competitors.find((c) => c.homeAway === 'home') || competitors[0] || {});
     const away = sideOf(competitors.find((c) => c.homeAway === 'away') || competitors[1] || {});
-    const type = event.status?.type || {};
+    const status = event.status || comp.status || {};
+    const type = status.type || {};
+    const state = type.state || 'pre';
+    const live = state === 'in';
+    const situation = comp.situation || {};
+    const odds = comp.odds?.[0];
+    const tile = (side) => ({
+      id: side.id, abbr: side.abbr, name: side.name, short: side.short,
+      score: side.score, logo: side.logo, record: side.record, winner: side.winner,
+    });
     return {
       id: String(event.id),
       sport,
       name: event.shortName || event.name || '',
       start: event.date,
-      state: type.state || 'pre',
+      state,
+      completed: !!type.completed,
       statusDetail: type.shortDetail || '',
-      home: { id: home.id, abbr: home.abbr, name: home.name, score: home.score, logo: home.logo },
-      away: { id: away.id, abbr: away.abbr, name: away.name, score: away.score, logo: away.logo },
+      period: toNum(status.period),
+      clock: status.displayClock || '',
+      broadcast: pickBroadcast(comp.broadcasts),
+      odds: state === 'pre' && odds ? { spread: odds.details || null, total: odds.overUnder ?? null } : null,
+      possession: sport === 'nfl' && live && situation.possession ? String(situation.possession) : null,
+      redZone: sport === 'nfl' && live && !!situation.isRedZone,
+      downDistance: sport === 'nfl' && live ? situation.shortDownDistanceText || situation.downDistanceText || null : null,
+      home: tile(home),
+      away: tile(away),
     };
   });
+}
+
+// NFL boards come back a week at a time; the league calendar names the week
+// and its dates, and bounds the arrows on the Games tab.
+export function weekInfo(board) {
+  const type = String(board?.season?.type ?? 2);
+  const number = toNum(board?.week?.number);
+  const section = (board?.leagues?.[0]?.calendar || []).find((c) => String(c.value) === type);
+  const entries = section?.entries || [];
+  const entry = entries.find((e) => String(e.value) === String(number));
+  return {
+    number,
+    seasonType: Number(type),
+    label: entry?.label || (number ? `Week ${number}` : ''),
+    detail: entry?.detail || '',
+    first: entries.length ? toNum(entries[0].value) : 1,
+    last: entries.length ? toNum(entries[entries.length - 1].value) : 18,
+  };
+}
+
+// --- injuries -----------------------------------------------------------
+
+function injuryEntries(summary) {
+  const out = [];
+  for (const block of summary?.injuries || []) {
+    const teamAbbr = block.team?.abbreviation || '';
+    for (const item of block.injuries || []) {
+      const id = item.athlete?.id;
+      if (!id) continue;
+      out.push({
+        teamAbbr,
+        id: String(id),
+        name: item.athlete.displayName || item.athlete.shortName || '',
+        status: item.status || item.type?.description || '',
+        detail: item.details?.detail || item.details?.type || '',
+      });
+    }
+  }
+  return out;
+}
+
+// --- box score ----------------------------------------------------------
+
+// The "45% 13% 63%" line under an NBA team total: made over attempted for the
+// three shooting columns, worked out from ESPN's own "19-42" totals.
+function shootingPercents(labels, totals) {
+  return labels.map((label, i) => {
+    if (!['FG', '3PT', 'FT'].includes(label)) return '';
+    const [made, att] = String(totals[i] || '').split('-').map(Number);
+    return att > 0 ? `${Math.round((made / att) * 100)}%` : '';
+  });
+}
+
+// One ESPN stat table, kept as ESPN's own labels and display strings so NBA
+// and NFL draw through the same renderer.
+function boxGroup(sport, group, onCourt) {
+  const rows = (group.athletes || []).map((entry) => {
+    const a = entry.athlete || {};
+    const id = String(a.id ?? '');
+    const stats = (entry.stats || []).map((v) => String(v ?? ''));
+    return {
+      id,
+      name: a.displayName || a.shortName || '',
+      short: a.shortName || a.displayName || '',
+      jersey: a.jersey || '',
+      pos: a.position?.abbreviation || '',
+      starter: !!entry.starter,
+      dnp: !!entry.didNotPlay || !stats.length,
+      reason: entry.reason || '',
+      ejected: !!entry.ejected,
+      onCourt: onCourt ? onCourt.has(id) : false,
+      stats,
+    };
+  });
+  // NFL sends every category even when nobody recorded one (no fumbles, no
+  // interceptions), so drop the empty tables rather than draw blank ones.
+  if (!rows.length) return null;
+  const labels = group.labels || [];
+  const totals = (group.totals || []).map((v) => String(v ?? ''));
+  return {
+    name: group.name || 'players',
+    title: group.text || '',
+    labels,
+    totals,
+    percents: sport === 'nba' ? shootingPercents(labels, totals) : null,
+    rows,
+  };
+}
+
+// Game time in minutes, counting NBA overtime as five-minute periods.
+function nbaGameMinute(period, clock) {
+  const left = minutesRemaining(clock);
+  if (period <= 4) return (period - 1) * 12 + (12 - left);
+  return 48 + (period - 5) * 5 + (5 - left);
+}
+
+const RUN_WINDOW_MIN = 6;
+const RUN_MIN_POINTS = 8;
+const RUN_MIN_MARGIN = 6;
+
+/**
+ * REAL's "13-2 run" line. Looks back from the latest basket, within the last
+ * six minutes of game time, for the stretch in which one team outscored the
+ * other by the most -- counting only stretches where the other side managed a
+ * third as many points or fewer. Without that, a long back-and-forth 19-9
+ * stretch outranks a genuine 13-2 burst, and nobody calls 19-9 a run. Each
+ * scoring play carries the running score, so every window is a subtraction.
+ */
+export function scoringRun(summary, home, away) {
+  const scoring = (summary?.plays || []).filter((p) => p.scoringPlay);
+  if (!scoring.length) return null;
+  const status = summary?.header?.competitions?.[0]?.status || {};
+  const now = nbaGameMinute(toNum(status.period) || 1, status.displayClock);
+  const last = scoring[scoring.length - 1];
+  const endAway = toNum(last.awayScore);
+  const endHome = toNum(last.homeScore);
+
+  let best = null;
+  for (let i = scoring.length - 1; i >= 0; i--) {
+    const started = nbaGameMinute(toNum(scoring[i].period?.number) || 1, scoring[i].clock?.displayValue);
+    if (now - started > RUN_WINDOW_MIN) break;
+    const before = scoring[i - 1];
+    const awayPts = endAway - toNum(before?.awayScore);
+    const homePts = endHome - toNum(before?.homeScore);
+    const scored = Math.max(awayPts, homePts);
+    const allowed = Math.min(awayPts, homePts);
+    if (scored < RUN_MIN_POINTS || scored - allowed < RUN_MIN_MARGIN || allowed * 3 > scored) continue;
+    if (!best || scored - allowed > best.scored - best.allowed) best = { awayPts, homePts, scored, allowed, started };
+  }
+  if (!best) return null;
+
+  const { scored, allowed } = best;
+  const seconds = Math.max(0, Math.round((now - best.started) * 60));
+  return {
+    teamAbbr: best.awayPts > best.homePts ? away.abbr : home.abbr,
+    for: scored,
+    against: allowed,
+    span: `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`,
+  };
+}
+
+export function normalizeBox(sport, summary) {
+  const comp = summary?.header?.competitions?.[0] || {};
+  const status = comp.status || {};
+  const type = status.type || {};
+  const state = type.state || 'pre';
+  const competitors = comp.competitors || [];
+  const home = sideOf(competitors.find((c) => c.homeAway === 'home') || competitors[0] || {});
+  const away = sideOf(competitors.find((c) => c.homeAway === 'away') || competitors[1] || {});
+
+  // Who is on the floor comes from the same substitution replay as /api/live.
+  let onCourt = null;
+  if (sport === 'nba' && state === 'in') {
+    const roster = {};
+    for (const block of summary?.boxscore?.players || []) {
+      for (const group of block.statistics || []) {
+        for (const entry of group.athletes || []) {
+          const id = String(entry.athlete?.id ?? '');
+          if (id) roster[id] = { id, starter: !!entry.starter || !!roster[id]?.starter };
+        }
+      }
+    }
+    onCourt = onCourtIds(summary, roster);
+  }
+
+  const teams = [away, home].map((side) => {
+    const block = (summary?.boxscore?.players || []).find((b) => String(b.team?.id) === side.id);
+    const stats = (summary?.boxscore?.teams || []).find((t) => String(t.team?.id) === side.id);
+    return {
+      id: side.id,
+      abbr: side.abbr,
+      groups: (block?.statistics || []).map((g) => boxGroup(sport, g, onCourt)).filter(Boolean),
+      // Before tip-off ESPN fills these with season averages, which would read
+      // as tonight's numbers, so team stats only appear once the game starts.
+      teamStats: state === 'pre' ? [] : (stats?.statistics || []).map((st) => ({
+        label: st.label || st.name || '',
+        value: String(st.displayValue ?? ''),
+      })),
+    };
+  });
+
+  const pick = summary?.pickcenter?.[0];
+  const header = (side) => ({
+    id: side.id, abbr: side.abbr, name: side.name, short: side.short, logo: side.logo,
+    score: side.score, record: side.record, winner: side.winner, linescores: side.linescores,
+  });
+  return {
+    id: String(summary?.header?.id ?? comp.id ?? ''),
+    sport,
+    state,
+    completed: !!type.completed,
+    statusDetail: type.shortDetail || type.detail || '',
+    period: toNum(status.period),
+    clock: status.displayClock || '',
+    start: comp.date || null,
+    broadcast: pickBroadcast(comp.broadcasts),
+    venue: summary?.gameInfo?.venue?.fullName || '',
+    away: header(away),
+    home: header(home),
+    teams,
+    injuries: injuryEntries(summary),
+    odds: state === 'pre' && pick ? { spread: pick.details || null, total: pick.overUnder ?? null } : null,
+    run: sport === 'nba' && state === 'in' ? scoringRun(summary, home, away) : null,
+  };
+}
+
+export async function loadBox(sport, eventId) {
+  return normalizeBox(sport, await fetchJson(summaryUrl(sport, eventId)));
 }

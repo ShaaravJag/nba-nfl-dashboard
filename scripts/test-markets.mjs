@@ -1,7 +1,7 @@
 // Verifies settlement against a real finished game so the maths can be checked
 // without waiting for tip-off.
 import { loadGame } from '../api/_espn.js';
-import { evaluateLeg, betStatus, payoutFor, combineOdds, formatOdds, elapsedFraction } from '../public/markets.js';
+import { evaluateLeg, betStatus, payoutFor, combineOdds, formatOdds, elapsedFraction, legAlerts, sweatLine } from '../public/markets.js';
 
 const EVENT = process.argv[2] || '401909861'; // LAL 132 @ UTAH 123, 2026-10-25
 const game = await loadGame('nba', EVENT);
@@ -105,6 +105,72 @@ check('leg odds priced in decimal space, no rounding loss',
   check('0.4 left in Q1 is a quarter of the game', approx(frac('0.4'), 0.2497), true);
   check('Q3 sub-minute clock keeps the periods already played', approx(frac('30.0', 3), 0.7396), true);
   check('an empty clock does not go negative', frac('') >= 0, true);
+}
+
+// --- leg alerts -------------------------------------------------------------
+{
+  const mk = (o = {}) => ({ sport: 'nba', state: 'in', period: 2, clock: '6:00', home: { abbr: 'HOM', score: 50 }, away: { abbr: 'AWY', score: 48 }, players: {}, injuries: {}, ...o });
+  const davis = (stats = {}, extra = {}) => ({ p1: { id: 'p1', name: 'Anthony Davis', stats: { pts: 10, ...stats }, dnp: false, ...extra } });
+  const pleg = (o = {}) => ({ id: 'l', sport: 'nba', market: 'nba.pts', line: 20.5, side: 'over', playerId: 'p1', playerName: 'Anthony Davis', eventId: 'e1', ...o });
+  const alerts = (leg, g) => legAlerts(leg, g, evaluateLeg(leg, { e1: g })).map((a) => `${a.level}:${a.text}`);
+  const fouls = (pf, period) => alerts(pleg(), mk({ period, players: davis({ pf }) }));
+
+  check('2 fouls in the 1st is foul trouble', fouls(2, 1), ['warn:2 fouls']);
+  check('2 fouls in the 2nd is not', fouls(2, 2), []);
+  check('3 fouls in the 2nd is', fouls(3, 2), ['warn:3 fouls']);
+  check('4 fouls in the 3rd is', fouls(4, 3), ['warn:4 fouls']);
+  check('4 fouls in the 4th is not', fouls(4, 4), []);
+  check('5 fouls in overtime is', fouls(5, 5), ['warn:5 fouls']);
+  check('6 fouls is fouled out', fouls(6, 4), ['bad:Fouled out']);
+  check('ejection is flagged', alerts(pleg(), mk({ players: davis({}, { ejected: true }) })), ['bad:Ejected']);
+  check('foul trouble on an under is neutral', alerts(pleg({ side: 'under' }), mk({ period: 4, players: davis({ pf: 5 }) })), ['info:5 fouls']);
+  check('no foul alert once an over has hit', alerts(pleg({ line: 5.5 }), mk({ period: 4, players: davis({ pf: 5 }) })), []);
+
+  const blow = (sport, period, margin, side = 'over') => alerts(pleg({ sport, market: sport === 'nba' ? 'nba.pts' : 'nfl.rushYds', side }),
+    mk({ sport, period, home: { abbr: 'HOM', score: 60 + margin }, away: { abbr: 'AWY', score: 60 }, players: davis({ pf: 0 }) }));
+  check('NBA up 25 in the 3rd is a blowout', blow('nba', 3, 25), ['warn:Blowout — starters may sit']);
+  check('NBA up 24 in the 3rd is not', blow('nba', 3, 24), []);
+  check('NBA up 20 in the 4th is', blow('nba', 4, 20), ['warn:Blowout — starters may sit']);
+  check('NBA up 30 in the 2nd is not yet', blow('nba', 2, 30), []);
+  check('a blowout never worries an under', blow('nba', 4, 30, 'under'), []);
+  check('NFL up 21 in the 4th is a blowout', blow('nfl', 4, 21), ['warn:Blowout — starters may sit']);
+  check('NFL up 28 in the 3rd is not yet', blow('nfl', 3, 28), []);
+
+  const injured = (status, state) => alerts(pleg(), mk({ state, period: state === 'pre' ? 0 : 2, players: state === 'pre' ? {} : davis(), injuries: { p1: { status, detail: 'Ankle' } } }));
+  check('ruled out reads as likely void', injured('Out', 'pre'), ['bad:OUT — leg likely void']);
+  check('questionable shows before tip-off', injured('Questionable', 'pre'), ['warn:Questionable']);
+  check('questionable drops once he is playing', injured('Questionable', 'in'), []);
+
+  const sat = (state, period) => alerts(pleg(), mk({ state, period, players: davis({ pts: 0 }, { dnp: true }) }));
+  check('NBA DNP at the final reads as likely void', sat('post', 4), ['bad:Did not play — likely void']);
+  check('NBA DNP early on is no alarm yet', sat('in', 2), []);
+  check("NBA DNP from the 3rd on hasn't played", sat('in', 3), ["warn:Hasn't played"]);
+  const nflLeg = pleg({ sport: 'nfl', market: 'nfl.recYds', line: 40.5 });
+  check('NFL absence from the box is not a DNP', alerts(nflLeg, mk({ sport: 'nfl', state: 'post', period: 4, players: { other: { id: 'other', name: 'Someone', stats: {} } } })), []);
+  check('game lines get no player alerts', alerts({ id: 'g', sport: 'nba', market: 'nba.game_total', line: 220.5, side: 'over', eventId: 'e1' }, mk({ period: 4, home: { abbr: 'HOM', score: 90 }, away: { abbr: 'AWY', score: 60 } })), []);
+}
+
+// --- sweat line ---------------------------------------------------------------
+{
+  const g = (o = {}) => ({ sport: 'nba', state: 'in', period: 3, clock: '6:00', home: { abbr: 'WSH', score: 70 }, away: { abbr: 'CHA', score: 68 }, players: {
+    d: { id: 'd', name: 'Anthony Davis', stats: { pts: 30, reb: 2 } },
+    j: { id: 'j', name: 'Jaren Jackson Jr.', stats: { pts: 25, reb: 9 } },
+  }, ...o });
+  const leg = (o) => ({ eventId: 'e1', sport: 'nba', side: 'over', ...o });
+  const line = (legs, game = g()) => sweatLine({ legs }, legs.map((l) => evaluateLeg(l, { e1: game })));
+  const hitA = leg({ market: 'nba.pts', line: 20.5, playerId: 'd', playerName: 'Anthony Davis' });
+  const hitB = leg({ market: 'nba.pts', line: 20.5, playerId: 'j', playerName: 'Jaren Jackson Jr.' });
+  const needReb = leg({ market: 'nba.reb', line: 9.5, playerId: 'd', playerName: 'Anthony Davis' });
+  const needJJ = leg({ market: 'nba.reb', line: 12.5, playerId: 'j', playerName: 'Jaren Jackson Jr.' });
+
+  check('one leg left names what it needs', line([hitA, hitB, needReb]), '2 of 3 hit · Davis needs 8 more reb');
+  check('suffixes are dropped from the name', line([hitA, needJJ]), '1 of 2 hit · Jackson needs 4 more reb');
+  check('several left just counts them', line([hitA, needReb, needJJ]), '1 of 3 hit · 2 to go');
+  check('a straight under shows where it stands', line([leg({ market: 'nba.reb', line: 9.5, side: 'under', playerId: 'd', playerName: 'Anthony Davis' })]), 'Davis under 9.5 reb (at 2)');
+  check('a game total says how far off it is', line([hitA, leg({ market: 'nba.game_total', line: 150.5 })]), '1 of 2 hit · Game Total needs 13 more');
+  check('a spread shows the margin', line([hitA, leg({ market: 'nba.spread', line: -4.5, teamAbbr: 'WSH' })]), '1 of 2 hit · WSH -4.5 · margin +2');
+  check('nothing started yet waits on the games', line([needReb, { ...needJJ, eventId: 'e2' }], g({ state: 'pre' })), 'Waiting on 2 games');
+  check('every leg in', line([hitA, hitB]), 'All 2 legs hit');
 }
 
 console.log(`\n${failures === 0 ? 'All checks passed.' : `${failures} FAILED`}\n`);

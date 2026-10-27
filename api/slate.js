@@ -2,15 +2,7 @@
 //
 // Today's NBA + NFL games plus a searchable player index for the teams playing,
 // which is everything the add-a-leg screen needs in one request.
-import { SPORTS, fetchJson, scoreboardUrl, rosterUrl, normalizeScoreboard } from './_espn.js';
-
-// The sports day rolls over at 6am Eastern, so a 1am box score still belongs to
-// the previous night's slate.
-function sportsDay(now = new Date()) {
-  const et = new Date(now.toLocaleString('en-US', { timeZone: 'America/New_York' }));
-  if (et.getHours() < 6) et.setDate(et.getDate() - 1);
-  return `${et.getFullYear()}${String(et.getMonth() + 1).padStart(2, '0')}${String(et.getDate()).padStart(2, '0')}`;
-}
+import { SPORTS, fetchJson, scoreboardUrl, rosterUrl, normalizeScoreboard, sportsDay } from './_espn.js';
 
 // NBA returns a flat athlete list; NFL nests them in position groups
 // ({ position: 'offense', items: [...] }), so flatten before mapping.

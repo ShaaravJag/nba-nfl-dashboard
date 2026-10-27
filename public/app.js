@@ -1,9 +1,10 @@
 import {
   MARKETS, UNSUPPORTED, marketGroups, resolveMarket, evaluateLeg, betStatus,
-  payoutFor, profitFor, formatOdds, combineOdds,
+  payoutFor, profitFor, formatOdds, combineOdds, legAlerts, sweatLine,
 } from './markets.js';
 import { createSync } from './sync.js';
 import { IMPORT_PROMPT } from './import-prompt.js';
+import { scoreboardHtml, boxScoreHtml, MARKET_COLUMNS } from './scores.js';
 
 const BETS_KEY = 'bt.bets.v2';
 const PREFS_KEY = 'bt.prefs.v1';
@@ -30,6 +31,8 @@ const state = {
   legStatus: {},      // legId -> last seen status, drives the flash + beep
   draft: newDraft(prefs.book),
   picker: newPicker(),
+  scores: newScores(prefs.scoresSport),
+  box: null,          // { sport, id, data, side, from, error } while a box score is open
 };
 
 function load(key, fallback) {
@@ -41,6 +44,9 @@ function save(key, value) {
 }
 function newDraft(book = 'FanDuel') { return { book, stake: '', odds: '', payout: '', legs: [] }; }
 function newPicker() { return { query: '', pick: null, market: null, line: '', side: 'over', odds: '', teamAbbr: null }; }
+function newScores(sport = 'nba') {
+  return { sport, today: null, date: null, week: null, seasonType: null, weekMeta: null, data: null, error: null };
+}
 
 function persist({ push = true } = {}) {
   save(BETS_KEY, state.bets);
@@ -132,6 +138,109 @@ function scheduleNextPoll() {
   pollTimer = setTimeout(async () => { await poll(); scheduleNextPoll(); }, pollInterval());
 }
 
+// ---------------------------------------------------------------- games + box score
+
+function scoresQuery() {
+  const s = state.scores;
+  const q = new URLSearchParams({ sport: s.sport });
+  if (s.sport === 'nba' && s.date) q.set('date', s.date);
+  if (s.sport === 'nfl' && s.week) { q.set('week', s.week); q.set('seasontype', s.seasonType || 2); }
+  return q.toString();
+}
+
+async function loadScores() {
+  const query = scoresQuery();
+  try {
+    const res = await fetch(`/api/scores?${query}`);
+    if (!res.ok) throw new Error(`scores ${res.status}`);
+    const data = await res.json();
+    if (query !== scoresQuery()) return;             // moved to another day or sport meanwhile
+    const s = state.scores;
+    Object.assign(s, { data, error: null, today: data.today || s.today });
+    // Pin the default day or week so later polls ask for it by name.
+    if (s.sport === 'nba' && !s.date) s.date = data.date;
+    if (s.sport === 'nfl' && data.week) {
+      s.weekMeta = data.week;
+      if (!s.week) { s.week = data.week.number; s.seasonType = data.week.seasonType; }
+    }
+  } catch (err) {
+    console.warn('scores failed', err);
+    if (query === scoresQuery()) state.scores.error = 'Check your connection and try again.';
+  }
+  if (state.tab === 'games') renderGames();
+}
+
+async function loadBoxScore() {
+  const box = state.box;
+  if (!box) return;
+  const { sport, id } = box;
+  try {
+    const res = await fetch(`/api/box?sport=${sport}&id=${id}`);
+    if (!res.ok) throw new Error(`box ${res.status}`);
+    const data = await res.json();
+    if (state.box?.id !== id) return;
+    Object.assign(state.box, { data, error: null });
+  } catch (err) {
+    console.warn('box failed', err);
+    if (state.box?.id === id && !state.box.data) state.box.error = "Couldn't load this box score.";
+  }
+  if (state.tab === 'game' && state.box?.id === id) renderBox();
+}
+
+// The Games tab and an open box score poll on their own timer, separate from
+// the bet loop, and only while you are looking at them.
+let viewTimer = null;
+
+function viewDelay() {
+  if (document.hidden) return null;
+  if (state.tab === 'games') return state.scores.data?.games?.some((g) => g.state === 'in') ? 10000 : 60000;
+  if (state.tab === 'game') {
+    const s = state.box?.data?.state;
+    return s === 'post' ? null : s === 'in' ? 5000 : 30000;
+  }
+  return null;
+}
+
+async function refreshView() {
+  if (state.tab === 'games') await loadScores();
+  else if (state.tab === 'game') await loadBoxScore();
+}
+
+function scheduleView() {
+  clearTimeout(viewTimer);
+  const ms = viewDelay();
+  if (ms) viewTimer = setTimeout(async () => { await refreshView(); scheduleView(); }, ms);
+}
+
+// Entering a view fetches straight away, then settles into its own cadence.
+function startView() {
+  clearTimeout(viewTimer);
+  if (state.tab === 'games' || state.tab === 'game') refreshView().then(scheduleView);
+}
+
+function openLegCounts() {
+  const counts = new Map();
+  for (const bet of state.bets) {
+    if (bet.result) continue;
+    for (const leg of bet.legs) if (leg.eventId) counts.set(leg.eventId, (counts.get(leg.eventId) || 0) + 1);
+  }
+  return counts;
+}
+
+/** playerId -> box-score columns your open bets on this game ride on. */
+function trackedFor(eventId) {
+  const map = new Map();
+  for (const bet of state.bets) {
+    if (bet.result) continue;
+    for (const leg of bet.legs) {
+      if (leg.eventId !== eventId || !leg.playerId) continue;
+      if (!map.has(leg.playerId)) map.set(leg.playerId, new Set());
+      for (const col of MARKET_COLUMNS[leg.market] || []) map.get(leg.playerId).add(col);
+    }
+  }
+  return map;
+}
+
 function setPulse(on, text) {
   $('#pulse-dot').classList.toggle('on', !!on);
   $('#pulse-text').textContent = text;
@@ -184,8 +293,11 @@ function beep(up) {
 // ---------------------------------------------------------------- render
 
 function render() {
-  document.querySelectorAll('.tab').forEach((t) => t.classList.toggle('active', t.dataset.tab === state.tab));
+  const tab = state.tab === 'game' ? 'games' : state.tab;   // a box score lives under Games
+  document.querySelectorAll('.tab').forEach((t) => t.classList.toggle('active', t.dataset.tab === tab));
   if (state.tab === 'live') renderLive();
+  else if (state.tab === 'games') renderGames();
+  else if (state.tab === 'game') renderBox();
   else if (state.tab === 'add') renderAdd();
   else if (state.tab === 'history') renderHistory();
   else if (state.tab === 'settings') renderSettings();
@@ -220,8 +332,8 @@ function gameStripHtml(g, leg) {
   // repeats the badge once the game is over.
   const when = g.state === 'post' ? '' : `<span>${esc(g.statusDetail)}</span><span class="sep">&middot;</span>`;
   const odds = leg.americanOdds ? `<span class="odds">${formatOdds(leg.americanOdds)}</span>` : '';
-  return `<div class="gamestrip">${badge}${when}` +
-    `<span>${esc(g.away.abbr)} @ ${esc(g.home.abbr)}</span>${odds}</div>`;
+  return `<div class="gamestrip" data-open-game="${esc(leg.sport)}:${esc(leg.eventId)}">${badge}${when}` +
+    `<span>${esc(g.away.abbr)} @ ${esc(g.home.abbr)}</span>${odds}<span class="strip-go">&#8250;</span></div>`;
 }
 
 function teamsHtml(g) {
@@ -249,11 +361,12 @@ function barHtml(res) {
   </div>`;
 }
 
-function legFootHtml(leg, res) {
-  const bits = [];
+function legFootHtml(leg, res, alerts = []) {
+  const bits = alerts.map((a) => `<span class="alert ${a.level}">${esc(a.text)}</span>`);
   if (res.manual) {
     bits.push('<span>Not auto-tracked</span>');
-  } else {
+  } else if (!alerts.some((al) => al.void)) {
+    // A leg the book will likely void has no target worth counting toward.
     if (res.needed > 0 && res.status === 'live') bits.push(`<span>needs ${res.needed} more</span>`);
     if (res.status === 'hit') bits.push('<span style="color:var(--green)">Hit</span>');
     if (res.status === 'bust') bits.push('<span style="color:var(--red)">Busted</span>');
@@ -285,6 +398,9 @@ function legHtml(leg, res) {
   const dot = leg.sport === 'nba' && g?.state === 'in' && isPlayer
     ? `<span class="oncourt ${onCourt ? '' : 'off'}" title="${onCourt ? 'On the floor' : 'On the bench'}"></span>` : '';
   const title = isPlayer ? esc(leg.playerName) : esc(MARKETS[leg.market]?.label || leg.rawLabel || 'Leg');
+  // Minutes and fouls are what tell you whether an NBA over still has time.
+  const meta = leg.sport === 'nba' && isPlayer && player && g?.state !== 'pre'
+    ? `<span class="pmeta">${player.stats?.min ?? 0} MIN &middot; ${player.stats?.pf ?? 0} PF</span>` : '';
 
   return `<div class="leg ${res.status}${flash}" data-leg="${leg.id}">
     ${gameStripHtml(g, leg)}
@@ -292,11 +408,11 @@ function legHtml(leg, res) {
       ${teamsHtml(g)}
       <div>
         <div class="pname">${title}${dot}</div>
-        <div class="pmarket">${legSubtitle(leg, res)}</div>
+        <div class="pmarket"><span>${legSubtitle(leg, res)}</span>${meta}</div>
         ${barHtml(res)}
       </div>
     </div>
-    ${legFootHtml(leg, res)}
+    ${legFootHtml(leg, res, legAlerts(leg, g, res))}
   </div>`;
 }
 
@@ -323,6 +439,7 @@ function betHtml(bet) {
       <span class="spacer" style="flex:1"></span>
       ${statusPill(status)}
     </div>
+    ${bet.result ? '' : `<div class="sweat">${esc(sweatLine(bet, results))}</div>`}
     ${bet.legs.map((leg, i) => legHtml(leg, results[i])).join('')}
   </article>`;
 }
@@ -348,6 +465,29 @@ function renderLive() {
       <div class="sum-card"><div class="k">To win</div><div class="v pos">${money(toWin)}</div></div>
     </div>
     ${open.map(betHtml).join('')}`;
+}
+
+function renderGames() {
+  const view = $('#view');
+  const top = view.scrollTop;
+  view.innerHTML = scoreboardHtml(state.scores, { legCounts: openLegCounts() });
+  view.scrollTop = top;
+}
+
+function renderBox() {
+  const view = $('#view');
+  const top = view.scrollTop;
+  // The stat tables scroll sideways and a re-render builds new elements, so
+  // carry each table's position across -- otherwise every 5s refresh would
+  // snap the table back to the names column.
+  const lefts = new Map([...view.querySelectorAll('[data-scroll-key]')].map((n) => [n.dataset.scrollKey, n.scrollLeft]));
+  const box = state.box || {};
+  view.innerHTML = boxScoreHtml(box.data, { side: box.side || 'away', tracked: trackedFor(box.id), error: box.error, from: box.from });
+  for (const n of view.querySelectorAll('[data-scroll-key]')) {
+    const left = lefts.get(n.dataset.scrollKey);
+    if (left) n.scrollLeft = left;
+  }
+  view.scrollTop = top;
 }
 
 function renderHistory() {
@@ -627,16 +767,80 @@ function toast(msg) {
   node._t = setTimeout(() => node.classList.remove('show'), 2600);
 }
 
-function go(tab) { state.tab = tab; render(); }
+const TABS = ['live', 'games', 'add', 'history', 'settings'];
+
+function go(tab) {
+  state.tab = tab;
+  history.replaceState(null, '', `#${tab}`);
+  render();
+  startView();
+}
+
+function openGame(sport, id, from) {
+  const same = state.box?.id === id;
+  state.box = { sport, id, data: same ? state.box.data : null, side: same ? state.box.side : 'away', from, error: null };
+  state.tab = 'game';
+  history.pushState(null, '', `#game/${sport}/${id}`);
+  $('#view').scrollTop = 0;
+  render();
+  startView();
+}
+
+// Reads the hash: #games, #history, #game/nba/401909870 ...
+function route() {
+  const m = location.hash.match(/^#game\/(nba|nfl)\/(\d+)$/);
+  if (m) {
+    const [, sport, id] = m;
+    if (state.box?.id !== id) state.box = { sport, id, data: null, side: 'away', from: null, error: null };
+    state.tab = 'game';
+  } else {
+    const tab = location.hash.slice(1);
+    state.tab = TABS.includes(tab) ? tab : 'live';
+  }
+  render();
+  startView();
+}
+
+window.addEventListener('popstate', route);
 
 document.addEventListener('click', async (ev) => {
-  const t = ev.target.closest('[data-tab],[data-goto],[data-del],[data-pick-player],[data-pick-game],[data-market],[data-team],[data-rm-leg],[data-manual],button');
+  const t = ev.target.closest('[data-tab],[data-goto],[data-del],[data-pick-player],[data-pick-game],[data-market],[data-team],[data-rm-leg],[data-manual],[data-open-game],[data-sport],[data-day],[data-week],[data-box-side],[data-back],button');
   if (!t) return;
 
   if (t.dataset.tab) return go(t.dataset.tab);
   if (t.dataset.goto) return go(t.dataset.goto);
   if (t.id === 'btn-settings') return go('settings');
-  if (t.id === 'btn-refresh') { await poll(); toast('Refreshed'); return; }
+  if (t.id === 'btn-refresh') { await Promise.all([poll(), refreshView()]); toast('Refreshed'); return; }
+
+  if (t.dataset.openGame) {
+    const [sport, id] = t.dataset.openGame.split(':');
+    if (sport && id) openGame(sport, id, state.tab);
+    return;
+  }
+  if (t.dataset.back !== undefined) {
+    // Came here by tapping in the app: step back to that screen. Arrived by a
+    // link or a reload: there is nothing to go back to, so land on Games.
+    if (state.box?.from) history.back(); else go('games');
+    return;
+  }
+  if (t.dataset.boxSide) { state.box.side = t.dataset.boxSide; renderBox(); return; }
+  if (t.dataset.sport) {
+    if (t.dataset.sport !== state.scores.sport) {
+      state.scores = newScores(t.dataset.sport);
+      state.prefs.scoresSport = t.dataset.sport;
+      persist({ push: false });
+      renderGames(); startView();
+    }
+    return;
+  }
+  if (t.dataset.day) {
+    Object.assign(state.scores, { date: t.dataset.day, data: null, error: null });
+    renderGames(); startView(); return;
+  }
+  if (t.dataset.week) {
+    Object.assign(state.scores, { week: Number(t.dataset.week), data: null, error: null });
+    renderGames(); startView(); return;
+  }
 
   if (t.dataset.del) {
     const bet = state.bets.find((b) => b.id === t.dataset.del);
@@ -781,12 +985,15 @@ document.addEventListener('input', (ev) => {
   if (ev.target.id === 'in-sound') { state.prefs.sound = ev.target.checked; persist({ push: false }); }
 });
 
-document.addEventListener('visibilitychange', () => { if (!document.hidden) { poll(); scheduleNextPoll(); } });
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden) { clearTimeout(viewTimer); return; }
+  poll(); scheduleNextPoll(); startView();
+});
 
 // ---------------------------------------------------------------- boot
 
 (async function boot() {
-  render();
+  route();
   sync.start();
   await loadSlate();
   await poll();

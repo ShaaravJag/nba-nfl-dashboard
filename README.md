@@ -17,6 +17,16 @@ edge cache. Every poll from every device collapses into one upstream fetch per
 Polling runs at 3s while a tracked game is live and the tab is visible, 15s in the
 background, and stops when nothing is in progress.
 
+The **Games** tab is every NBA game by day and every NFL game by week, as REAL-style
+tiles. Tapping one opens an ESPN-style box score -- every column, starters and bench,
+DNP rows, team totals and team stats -- refreshing every 5s while the game is live.
+Players on your open bets are marked, with the stat each bet rides on outlined.
+Both views poll on their own timer, and only while you are looking at them.
+
+Leg tiles also flag foul trouble, blowouts that could sit the starters, and players
+ruled out or not playing, and each parlay gets a one-line summary of what it still
+needs. These are information only; settlement never reads them.
+
 ## Layout
 
 | Path | What it does |
@@ -25,19 +35,23 @@ background, and stops when nothing is in progress.
 | `public/app.js` | State, polling loop, rendering. |
 | `public/sync.js` | Cross-device sync over Supabase REST. No client library. |
 | `public/import-prompt.js` | The screenshot→JSON prompt, with its market enum generated from the catalog. |
+| `public/scores.js` | HTML for the Games tab and the box score. Pure functions of the data. |
 | `api/_espn.js` | ESPN fetching and normalization. |
-| `api/live.js` | Trimmed live box scores. |
+| `api/live.js` | Trimmed live box scores for the games you have bets on. |
+| `api/scores.js` | One sport's scoreboard: NBA by day, NFL by week. |
+| `api/box.js` | One game's full box score, in ESPN's own columns. |
 | `api/slate.js` | Today's games plus a searchable player index. |
 
 ## Running locally
 
 ```
 npm run dev     # http://localhost:4321
-npm test        # settlement checks against a real finished game
+npm test        # settlement, alerts and box scores against real finished games
 ```
 
-`npm test` replays a completed NBA game through the settlement logic, so the maths
-can be checked without waiting for tip-off.
+`npm test` replays a completed NBA game through the settlement logic and checks the
+box-score tables against known final numbers, so the maths can be checked without
+waiting for tip-off.
 
 ## Adding bets
 
@@ -78,6 +92,9 @@ than the commit author.
   Anything unmappable is kept as a leg with a manual hit/miss toggle rather than
   being dropped.
 - FanDuel has no public API. Bets are entered manually or imported from screenshots.
+- ESPN publishes no NBA possession, so only NFL tiles show who has the ball.
+- If a player sits, books usually void the leg, but the app still settles that over
+  as lost. The "likely void" alert flags it; correcting the payout is still manual.
 
 ## Sync
 
