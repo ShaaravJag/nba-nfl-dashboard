@@ -99,7 +99,7 @@ async function poll() {
   for (const [sport, ids] of Object.entries(bySport)) {
     if (ids.size) params.set(sport, [...ids].sort().join(','));
   }
-  if (![...params.keys()].length) { setPulse(false, 'nothing live'); return; }
+  if (![...params.keys()].length) { setPulse(false, 'no open bets'); return; }
 
   state.fetching = true;
   try {
