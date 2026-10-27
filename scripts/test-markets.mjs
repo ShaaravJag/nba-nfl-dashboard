@@ -1,7 +1,7 @@
 // Verifies settlement against a real finished game so the maths can be checked
 // without waiting for tip-off.
 import { loadGame } from '../api/_espn.js';
-import { evaluateLeg, betStatus, payoutFor, combineOdds, formatOdds, elapsedFraction, legAlerts, sweatLine } from '../public/markets.js';
+import { evaluateLeg, betStatus, payoutFor, profitFor, priceBet, combineOdds, formatOdds, elapsedFraction, legAlerts, sweatLine } from '../public/markets.js';
 
 const EVENT = process.argv[2] || '401909861'; // LAL 132 @ UTAH 123, 2026-10-25
 const game = await loadGame('nba', EVENT);
@@ -142,7 +142,7 @@ check('leg odds priced in decimal space, no rounding loss',
   check('questionable drops once he is playing', injured('Questionable', 'in'), []);
 
   const sat = (state, period) => alerts(pleg(), mk({ state, period, players: davis({ pts: 0 }, { dnp: true }) }));
-  check('NBA DNP at the final reads as likely void', sat('post', 4), ['bad:Did not play — likely void']);
+  check('NBA DNP at the final is void, not an alert', sat('post', 4), []);
   check('NBA DNP early on is no alarm yet', sat('in', 2), []);
   check("NBA DNP from the 3rd on hasn't played", sat('in', 3), ["warn:Hasn't played"]);
   const nflLeg = pleg({ sport: 'nfl', market: 'nfl.recYds', line: 40.5 });
@@ -171,6 +171,54 @@ check('leg odds priced in decimal space, no rounding loss',
   check('a spread shows the margin', line([hitA, leg({ market: 'nba.spread', line: -4.5, teamAbbr: 'WSH' })]), '1 of 2 hit · WSH -4.5 · margin +2');
   check('nothing started yet waits on the games', line([needReb, { ...needJJ, eventId: 'e2' }], g({ state: 'pre' })), 'Waiting on 2 games');
   check('every leg in', line([hitA, hitB]), 'All 2 legs hit');
+  const outGame = g({ injuries: { z: { status: 'Out' } } });
+  const ruledOut = leg({ market: 'nba.pts', line: 10.5, playerId: 'z', playerName: 'Nic Claxton' });
+  check('a void leg drops out of the count', line([hitA, ruledOut, needReb], outGame), '1 of 2 hit · 1 void · Davis needs 8 more reb');
+  check('every leg void means the stake comes back', line([ruledOut], outGame), 'Every leg void — stake back');
+}
+
+// --- void legs + re-pricing ---------------------------------------------------
+{
+  const game = (o = {}) => ({ sport: 'nba', state: 'post', period: 4, clock: '0.0', home: { abbr: 'HOM', score: 110 }, away: { abbr: 'AWY', score: 100 }, injuries: {}, players: {
+    a: { id: 'a', name: 'Played Guy', stats: { pts: 30, reb: 8 }, dnp: false },
+    d: { id: 'd', name: 'Bench Guy', stats: {}, dnp: true },
+  }, ...o });
+  const leg = (o) => ({ id: o.playerId || 'x', eventId: 'e1', sport: 'nba', market: 'nba.pts', line: 10.5, side: 'over', ...o });
+  const status = (l, g = game()) => evaluateLeg(l, { e1: g }).status;
+  const live = { state: 'in', period: 3, clock: '5:00' };
+
+  check('NBA DNP at the final is void', status(leg({ playerId: 'd', playerName: 'Bench Guy' })), 'void');
+  check('an under on a DNP is void too, not a win', status(leg({ playerId: 'd', playerName: 'Bench Guy', side: 'under' })), 'void');
+  check('NBA player missing from a final box is void', status(leg({ playerId: 'zz', playerName: 'Inactive Guy' })), 'void');
+  check('NBA DNP mid-game is still live -- he can check in', status(leg({ playerId: 'd', playerName: 'Bench Guy' }), game(live)), 'live');
+  check('ruled out goes void once the game starts', status(leg({ playerId: 'zz', playerName: 'Hurt Guy' }), game({ ...live, period: 1, injuries: { zz: { status: 'Out' } } })), 'void');
+  check('ruled out but not started yet stays pending', status(leg({ playerId: 'zz', playerName: 'Hurt Guy' }), game({ state: 'pre', period: 0, players: {}, injuries: { zz: { status: 'Out' } } })), 'pending');
+  check('listed out but actually played is not void', status(leg({ playerId: 'a', playerName: 'Played Guy' }), game({ injuries: { a: { status: 'Out' } } })), 'won');
+  const nflLeg = (o) => leg({ sport: 'nfl', market: 'nfl.recYds', line: 40.5, ...o });
+  check('NFL ruled out goes void', status(nflLeg({ playerId: 'zz', playerName: 'Hurt WR' }), game({ sport: 'nfl', injuries: { zz: { status: 'Out' } } })), 'void');
+  check('NFL missing from the box with no injury is a normal loss', status(nflLeg({ playerId: 'zz', playerName: 'Quiet WR' }), game({ sport: 'nfl' })), 'lost');
+  check('a void leg says why', evaluateLeg(leg({ playerId: 'd', playerName: 'Bench Guy' }), { e1: game() }).voidReason, 'did not play');
+
+  check('won + void rolls up to won', betStatus([{ status: 'won' }, { status: 'void' }]), 'won');
+  check('lost + void is still lost', betStatus([{ status: 'lost' }, { status: 'void' }]), 'lost');
+  check('live + void is live', betStatus([{ status: 'live' }, { status: 'void' }]), 'live');
+  check('every leg void is void', betStatus([{ status: 'void' }, { status: 'void' }]), 'void');
+  check('every leg pushed is a push', betStatus([{ status: 'push' }, { status: 'push' }]), 'push');
+
+  // $10 at -110, +140, +120: 1.9091 x 2.4 x 2.2 = 10.08 decimal.
+  const parlay = { stake: 10, legs: [{ americanOdds: -110 }, { americanOdds: 140 }, { americanOdds: 120 }] };
+  const st = (...xs) => xs.map((s) => ({ status: s }));
+  check('no void: the legs multiply out', payoutFor(parlay, st('won', 'won', 'won')), 100.8);
+  check('void the +140: re-priced on the other two', payoutFor(parlay, st('won', 'void', 'won')), 42);
+  check('a pushed leg drops out the same way', payoutFor(parlay, st('won', 'push', 'won')), 42);
+  check('re-pricing reports the new odds', priceBet(parlay, st('won', 'void', 'won')).odds, 320);
+  check('every leg void: stake back', payoutFor(parlay, st('void', 'void', 'void')), 10);
+  check('profit follows the re-priced payout', profitFor(parlay, st('won', 'void', 'won')), 32);
+  // Only the parlay price and the void leg's odds known: divide it back out.
+  check('divides the void leg out of the parlay odds', payoutFor({ stake: 10, americanOdds: 650, legs: [{}, { americanOdds: -200 }, {}] }, st('won', 'void', 'won')), 50);
+  check('or out of the slip\'s "to pay"', payoutFor({ stake: 10, payout: 75, legs: [{}, { americanOdds: -200 }, {}] }, st('won', 'void', 'won')), 50);
+  check('no odds to work from: unknown, not guessed', payoutFor({ stake: 10, americanOdds: 650, legs: [{}, {}, {}] }, st('won', 'void', 'won')), null);
+  check('no results passed: the original price', payoutFor({ stake: 10, americanOdds: 650, legs: [{}, {}] }), 75);
 }
 
 console.log(`\n${failures === 0 ? 'All checks passed.' : `${failures} FAILED`}\n`);

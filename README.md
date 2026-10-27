@@ -25,7 +25,9 @@ Both views poll on their own timer, and only while you are looking at them.
 
 Leg tiles also flag foul trouble, blowouts that could sit the starters, and players
 ruled out or not playing, and each parlay gets a one-line summary of what it still
-needs. These are information only; settlement never reads them.
+needs. The alerts are information only; settlement never reads them. A player who
+actually doesn't play is different: that leg is voided and the parlay re-priced
+(see Known limits).
 
 ## Layout
 
@@ -93,8 +95,16 @@ than the commit author.
   being dropped.
 - FanDuel has no public API. Bets are entered manually or imported from screenshots.
 - ESPN publishes no NBA possession, so only NFL tiles show who has the ball.
-- If a player sits, books usually void the leg, but the app still settles that over
-  as lost. The "likely void" alert flags it; correcting the payout is still manual.
+- **Void legs.** A player prop goes void once it's certain the player won't play:
+  ruled out on ESPN's injury report with the game under way, or, NBA only, no
+  minutes by the final. The leg drops out and the parlay is re-priced the way books
+  do it: at the remaining legs' odds, or by dividing the void leg's odds out of the
+  parlay price. Pushed legs drop out the same way, and if every leg drops, the stake
+  comes back. NFL box scores leave out players without a stat, so an NFL player who
+  sits without being listed as out isn't caught. Same-game parlays are re-priced on
+  plain leg odds, which may differ slightly from the book's own correlated price.
+- If a re-price has no odds to work from (no leg prices and none on the void leg),
+  History asks you for the payout instead of guessing.
 
 ## Sync
 

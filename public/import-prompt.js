@@ -39,7 +39,8 @@ SCHEMA
         "market": "nba.pts",        // from the enum below
         "line": 19.5,               // number
         "side": "over",             // "over" or "under"; omit for spread/moneyline
-        "americanOdds": -162        // this leg's own price, if shown
+        "americanOdds": -162        // this leg's own price -- always include it when shown;
+                                    // it's needed to re-price the parlay if this leg is voided
       }
     ]
   }

@@ -183,8 +183,23 @@ export function elapsedFraction(g) {
 }
 
 /**
+ * Why a player prop is void, or null. Books void a prop when the player never
+ * plays, and the leg drops out of the parlay. Only decided once it's certain:
+ * ruled out with the game under way, or -- NBA only -- no minutes at the
+ * final. An NBA box lists everyone who dressed, so a missing row means he sat;
+ * an NFL box omits anyone without a stat, so there only the injury report counts.
+ */
+function sitsOut(leg, g, player) {
+  if (g.state === 'pre' || (player && !player.dnp)) return null;
+  const injury = g.injuries?.[leg.playerId] || g.injuries?.[player?.id];
+  if (/^out$/i.test(injury?.status || '')) return 'ruled out';
+  if (leg.sport === 'nba' && g.state === 'post' && (player || Object.keys(g.players || {}).length)) return 'did not play';
+  return null;
+}
+
+/**
  * Resolve one leg against the live game.
- * status: pending | live | hit | bust | won | lost | push | unknown
+ * status: pending | live | hit | bust | won | lost | push | void | unknown
  */
 export function evaluateLeg(leg, gamesById) {
   if (leg.market === UNSUPPORTED || leg.manualStatus) {
@@ -206,6 +221,8 @@ export function evaluateLeg(leg, gamesById) {
   let value;
   if (market.kind === 'player') {
     const p = g.players?.[leg.playerId] || Object.values(g.players || {}).find((x) => x.name === leg.playerName);
+    const sat = sitsOut(leg, g, p);
+    if (sat) return { value: null, line, side, market, status: 'void', progress: 0, voidReason: sat, text: `Void — ${sat}` };
     value = market.stat(p?.stats || EMPTY_STATS);
   } else {
     value = market.value(g, leg);
@@ -261,14 +278,19 @@ export function evaluateLeg(leg, gamesById) {
 
 const LOST_STATES = new Set(['lost', 'bust']);
 const WON_STATES = new Set(['won', 'hit', 'push']);
+// Legs that drop out of a parlay rather than win or lose it.
+const DROPPED = new Set(['void', 'push']);
 
 /** Roll leg results up into one status for the whole bet. */
 export function betStatus(results) {
   if (!results.length) return 'pending';
   if (results.some((r) => LOST_STATES.has(r.status))) return 'lost';
-  if (results.every((r) => r.status === 'won' || r.status === 'push')) return 'won';
-  if (results.some((r) => r.status === 'unknown')) return 'live';
-  return results.some((r) => r.status === 'live' || r.status === 'hit') ? 'live' : 'pending';
+  // Void and pushed legs drop out; with nothing left, the stake comes back.
+  const kept = results.filter((r) => !DROPPED.has(r.status));
+  if (!kept.length) return results.some((r) => r.status === 'push') ? 'push' : 'void';
+  if (kept.every((r) => r.status === 'won')) return 'won';
+  if (kept.some((r) => r.status === 'unknown')) return 'live';
+  return kept.some((r) => r.status === 'live' || r.status === 'hit') ? 'live' : 'pending';
 }
 
 // --- alerts + sweat line -------------------------------------------------
@@ -293,7 +315,7 @@ function lastName(name) {
 export function legAlerts(leg, game, res) {
   const out = [];
   const market = MARKETS[leg.market] || resolveMarket(leg.sport, leg.market);
-  if (!game || !market || market.kind !== 'player') return out;
+  if (!game || !market || market.kind !== 'player' || res?.status === 'void') return out;
 
   const player = game.players?.[leg.playerId] || Object.values(game.players || {}).find((p) => p.name === leg.playerName);
   const status = String(game.injuries?.[leg.playerId]?.status || '');
@@ -304,13 +326,12 @@ export function legAlerts(leg, game, res) {
   if (/^out$/i.test(status)) out.push({ level: 'bad', text: 'OUT — leg likely void', void: true });
   else if (status && game.state === 'pre') out.push({ level: 'warn', text: status });
 
-  // NBA box scores list every dressed player, so a missing or DNP row means he
-  // sat. NFL boxes only list players who recorded a stat -- absence proves
-  // nothing there, so NFL relies on the injury report alone.
-  if (leg.sport === 'nba' && !/^out$/i.test(status) && game.state !== 'pre') {
+  // An NBA player can still check in until the final (by then a DNP is a void
+  // leg, not an alert). NFL boxes only list players who recorded a stat, so
+  // absence proves nothing there and NFL relies on the injury report alone.
+  if (leg.sport === 'nba' && game.state === 'in' && period >= 3 && !/^out$/i.test(status)) {
     const sat = player ? player.dnp : Object.keys(game.players || {}).length > 0;
-    if (sat && game.state === 'post') out.push({ level: 'bad', text: 'Did not play — likely void', void: true });
-    else if (sat && period >= 3) out.push({ level: 'warn', text: "Hasn't played" });
+    if (sat) out.push({ level: 'warn', text: "Hasn't played" });
   }
 
   if (game.state === 'in' && !decided) {
@@ -353,19 +374,28 @@ function legNeed(leg, res) {
 
 /**
  * The one line on a parlay you actually read mid-game: how many legs are in
- * and what the rest still need -- "3 of 4 hit · Davis needs 8 more reb".
+ * and what the rest still need -- "3 of 4 hit · Davis needs 8 more reb". Void
+ * and pushed legs have dropped out, so they're counted separately.
  */
 export function sweatLine(bet, results) {
   const legs = bet.legs || [];
   if (!legs.length) return '';
-  if (results.every((r) => r.status === 'pending')) {
-    const games = new Set(legs.map((l) => l.eventId).filter(Boolean)).size || legs.length;
+  const voids = results.filter((r) => r.status === 'void').length;
+  const pushes = results.filter((r) => r.status === 'push').length;
+  const kept = legs.map((leg, i) => ({ leg, res: results[i] })).filter(({ res }) => !DROPPED.has(res.status));
+  if (!kept.length) {
+    return `${voids === legs.length ? 'Every leg void' : pushes === legs.length ? 'Every leg pushed' : 'No legs left'} — stake back`;
+  }
+  if (kept.every(({ res }) => res.status === 'pending')) {
+    const games = new Set(kept.map(({ leg }) => leg.eventId).filter(Boolean)).size || kept.length;
     return `Waiting on ${games} game${games === 1 ? '' : 's'}`;
   }
-  const open = legs.map((leg, i) => ({ leg, res: results[i] })).filter(({ res }) => !WON_STATES.has(res.status));
-  if (!open.length) return legs.length === 1 ? 'Hit' : `All ${legs.length} legs hit`;
+  const tag = [voids && `${voids} void`, pushes && `${pushes} push${pushes > 1 ? 'es' : ''}`]
+    .filter(Boolean).map((t) => ` · ${t}`).join('');
+  const open = kept.filter(({ res }) => !WON_STATES.has(res.status));
+  if (!open.length) return `${kept.length === 1 ? 'Hit' : `All ${kept.length} legs hit`}${tag}`;
   const need = open.length === 1 ? legNeed(open[0].leg, open[0].res) : `${open.length} to go`;
-  return legs.length === 1 ? need : `${legs.length - open.length} of ${legs.length} hit · ${need}`;
+  return kept.length === 1 && !tag ? need : `${kept.length - open.length} of ${kept.length} hit${tag} · ${need}`;
 }
 
 // --- odds ---------------------------------------------------------------
@@ -394,22 +424,59 @@ export function combineOdds(legOdds) {
   return dec == null ? null : decimalToAmerican(dec);
 }
 
-/** Total return (stake included), the way a book shows "to pay". */
-export function payoutFor(bet) {
-  if (Number.isFinite(Number(bet.payout)) && Number(bet.payout) > 0) return Number(bet.payout);
+const round2 = (n) => Math.round(n * 100) / 100;
+const allPriced = (legs) => legs.every((l) => Number.isFinite(Number(l.americanOdds)) && Number(l.americanOdds) !== 0);
+
+// The whole bet's price as a decimal: the slip's own "to pay", else its odds,
+// else its legs multiplied together.
+function betDecimal(bet) {
   const stake = Number(bet.stake) || 0;
-  // Stay in decimal space -- round-tripping through American odds loses cents.
-  const decimal = Number.isFinite(Number(bet.americanOdds)) && Number(bet.americanOdds) !== 0
-    ? americanToDecimal(bet.americanOdds)
-    : combineDecimal((bet.legs || []).map((l) => l.americanOdds));
-  if (!decimal) return null;
-  return Math.round(stake * decimal * 100) / 100;
+  if (Number(bet.payout) > 0 && stake > 0) return Number(bet.payout) / stake;
+  if (Number.isFinite(Number(bet.americanOdds)) && Number(bet.americanOdds) !== 0) return americanToDecimal(bet.americanOdds);
+  return combineDecimal((bet.legs || []).map((l) => l.americanOdds));
+}
+
+/**
+ * What a bet pays given how its legs stand -- total return, stake included,
+ * the way a book shows "to pay". A void or pushed leg drops out of a parlay and
+ * the rest is re-priced, as books settle it: at the remaining legs' own odds
+ * when every one is known, otherwise by dividing the dropped legs back out of
+ * the parlay's price. Every leg dropped means the stake comes back.
+ * Returns { payout, odds, repriced }; payout is null when the legs involved
+ * have no odds to work from.
+ */
+export function priceBet(bet, results = []) {
+  const stake = Number(bet.stake) || 0;
+  const legs = bet.legs || [];
+  const dropped = legs.filter((_, i) => DROPPED.has(results[i]?.status));
+
+  if (!dropped.length) {
+    // The slip's own "to pay" wins: it already includes any boost.
+    if (Number(bet.payout) > 0) return { payout: Number(bet.payout), odds: Number(bet.americanOdds) || null, repriced: false };
+    // Stay in decimal space -- round-tripping through American odds loses cents.
+    const dec = betDecimal(bet);
+    return { payout: dec ? round2(stake * dec) : null, odds: dec ? decimalToAmerican(dec) : null, repriced: false };
+  }
+  if (dropped.length === legs.length) return { payout: stake, odds: null, repriced: true };
+
+  const kept = legs.filter((_, i) => !DROPPED.has(results[i]?.status));
+  const full = betDecimal(bet);
+  let dec = null;
+  if (allPriced(kept)) dec = combineDecimal(kept.map((l) => l.americanOdds));
+  else if (full && allPriced(dropped)) dec = full / combineDecimal(dropped.map((l) => l.americanOdds));
+  if (!(dec >= 1)) return { payout: null, odds: null, repriced: true };
+  return { payout: round2(stake * dec), odds: decimalToAmerican(dec), repriced: true };
+}
+
+/** Total return (stake included). Pass leg results to account for void legs. */
+export function payoutFor(bet, results) {
+  return priceBet(bet, results).payout;
 }
 
 /** Profit if it wins, i.e. payout minus stake. */
-export function profitFor(bet) {
-  const payout = payoutFor(bet);
-  return payout == null ? null : Math.round((payout - (Number(bet.stake) || 0)) * 100) / 100;
+export function profitFor(bet, results) {
+  const payout = payoutFor(bet, results);
+  return payout == null ? null : round2(payout - (Number(bet.stake) || 0));
 }
 
 export function formatOdds(odds) {

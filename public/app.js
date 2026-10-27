@@ -1,6 +1,6 @@
 import {
   MARKETS, UNSUPPORTED, marketGroups, resolveMarket, evaluateLeg, betStatus,
-  payoutFor, profitFor, formatOdds, combineOdds, legAlerts, sweatLine,
+  payoutFor, priceBet, formatOdds, combineOdds, legAlerts, sweatLine,
 } from './markets.js';
 import { createSync } from './sync.js';
 import { IMPORT_PROMPT } from './import-prompt.js';
@@ -255,7 +255,7 @@ function settleFinished() {
     const allDone = bet.legs.every((leg, i) => {
       if (leg.manualStatus || leg.market === UNSUPPORTED) return !!leg.manualStatus;
       const g = state.games[leg.eventId];
-      return g && (g.state === 'post' || ['won', 'lost', 'push'].includes(results[i].status));
+      return g && (g.state === 'post' || ['won', 'lost', 'push', 'void'].includes(results[i].status));
     });
     const status = betStatus(results);
     // A busted leg settles the whole parlay immediately -- no need to wait.
@@ -264,6 +264,9 @@ function settleFinished() {
     bet.result = {
       status: dead ? 'lost' : status,
       at: Date.now(),
+      // Frozen with the bet: what it actually paid once void legs dropped out.
+      // Null when a re-price had no odds to work from -- History asks for it.
+      payout: dead ? 0 : payoutFor(bet, results),
       legs: results.map((r, i) => ({ id: bet.legs[i].id, value: r.value, status: r.status })),
     };
     changed = true;
@@ -305,7 +308,7 @@ function render() {
 
 function statusPill(status) {
   const map = { won: 'won', lost: 'lost', live: 'live', pending: 'pending' };
-  const label = { won: 'Won', lost: 'Lost', live: 'Live', pending: 'Pending' }[status] || status;
+  const label = { won: 'Won', lost: 'Lost', live: 'Live', pending: 'Pending', void: 'Void', push: 'Push' }[status] || status;
   return `<span class="pill ${map[status] || 'pending'}">${label}</span>`;
 }
 
@@ -363,7 +366,9 @@ function barHtml(res) {
 
 function legFootHtml(leg, res, alerts = []) {
   const bits = alerts.map((a) => `<span class="alert ${a.level}">${esc(a.text)}</span>`);
-  if (res.manual) {
+  if (res.status === 'void') {
+    bits.push(`<span class="void-tag">Void &middot; ${esc(res.voidReason)}</span><span>dropped from the bet</span>`);
+  } else if (res.manual) {
     bits.push('<span>Not auto-tracked</span>');
   } else if (!alerts.some((al) => al.void)) {
     // A leg the book will likely void has no target worth counting toward.
@@ -419,12 +424,17 @@ function legHtml(leg, res) {
 function betHtml(bet) {
   const results = bet.legs.map((leg) => evaluateLeg(leg, state.games));
   const status = bet.result?.status || betStatus(results);
-  const payout = payoutFor(bet);
-  const odds = bet.americanOdds || combineOdds(bet.legs.map((l) => l.americanOdds));
+  // A void leg drops out and the parlay is re-priced on the legs that stand.
+  const price = priceBet(bet, results);
+  const refund = ['void', 'push'].includes(status);
+  const odds = price.repriced ? price.odds : bet.americanOdds || combineOdds(bet.legs.map((l) => l.americanOdds));
   const title = bet.legs.length > 1 ? `${bet.legs.length}-leg parlay` : 'Straight bet';
   const sub = [
-    bet.stake ? `${money(bet.stake)} to win ${money(payout != null ? payout - bet.stake : null)}` : null,
-    odds ? formatOdds(odds) : null,
+    bet.stake && refund ? `${money(bet.stake)} stake back` : null,
+    bet.stake && !refund ? `${money(bet.stake)} to win ${money(price.payout != null ? price.payout - bet.stake : null)}` : null,
+    odds && !refund ? formatOdds(odds) : null,
+    price.repriced && !refund
+      ? `<span class="repriced">${price.payout == null ? 're-price needs leg odds' : 're-priced'}</span>` : null,
   ].filter(Boolean).join('  ·  ');
 
   return `<article class="bet ${status}" data-bet="${bet.id}">
@@ -448,7 +458,10 @@ function renderLive() {
   const view = $('#view');
   const open = state.bets.filter((b) => !b.result);
   const atRisk = open.reduce((a, b) => a + (Number(b.stake) || 0), 0);
-  const toWin = open.reduce((a, b) => { const p = payoutFor(b); return a + (p ? p - (Number(b.stake) || 0) : 0); }, 0);
+  const toWin = open.reduce((a, b) => {
+    const p = payoutFor(b, b.legs.map((leg) => evaluateLeg(leg, state.games)));
+    return a + (p ? p - (Number(b.stake) || 0) : 0);
+  }, 0);
 
   if (!open.length) {
     view.innerHTML = `<div class="empty"><div class="big">&#9898;</div>
@@ -490,28 +503,41 @@ function renderBox() {
   view.scrollTop = top;
 }
 
+// What a settled bet made or lost. A won parlay with a void leg pays its
+// re-priced amount, frozen at settlement; a void or push bet returns the stake.
+// Null when the re-price had no odds to work from and nobody has entered it.
+function settledProfit(bet) {
+  const stake = Number(bet.stake) || 0;
+  const { status, payout, legs } = bet.result;
+  if (status === 'lost') return -stake;
+  if (status !== 'won') return 0;
+  // Bets settled before re-pricing existed have no frozen payout.
+  const paid = payout !== undefined ? payout : payoutFor(bet, legs);
+  return paid == null ? null : Math.round((paid - stake) * 100) / 100;
+}
+
 function renderHistory() {
   const view = $('#view');
   const done = state.bets.filter((b) => b.result).sort((a, b) => b.result.at - a.result.at);
   const won = done.filter((b) => b.result.status === 'won');
   const lost = done.filter((b) => b.result.status === 'lost');
-  const profit = done.reduce((acc, b) => {
-    const stake = Number(b.stake) || 0;
-    if (b.result.status === 'won') return acc + (profitFor(b) || 0);
-    if (b.result.status === 'lost') return acc - stake;
-    return acc;
-  }, 0);
+  const profit = done.reduce((acc, b) => acc + (settledProfit(b) || 0), 0);
+  const unpriced = done.filter((b) => settledProfit(b) == null).length;
 
   const rows = done.map((b) => {
-    const stake = Number(b.stake) || 0;
-    const delta = b.result.status === 'won' ? (profitFor(b) || 0) : b.result.status === 'lost' ? -stake : 0;
+    const delta = settledProfit(b);
+    const voids = (b.result.legs || []).filter((l) => l.status === 'void').length;
+    let amount;
+    if (delta == null) amount = `<span class="amt"><button class="btn sm ghost" data-set-payout="${b.id}">Set payout</button></span>`;
+    else if (['void', 'push'].includes(b.result.status)) amount = `<span class="amt muted">${b.result.status === 'void' ? 'Void' : 'Push'}</span>`;
+    else amount = `<span class="amt ${delta > 0 ? 'pos' : delta < 0 ? 'neg' : ''}">${delta >= 0 ? '+' : '−'}${money(Math.abs(delta)).slice(1)}</span>`;
     return `<div class="hist-row">
       <span class="book ${esc((b.book || '').toLowerCase().replace(/\s/g, ''))}">${esc(b.book || 'Bet')}</span>
       <div>
         <div style="font-size:13.5px">${b.legs.length > 1 ? `${b.legs.length}-leg parlay` : 'Straight'}</div>
-        <div class="bet-sub">${b.legs.map((l) => esc(l.playerName || l.teamAbbr || '')).filter(Boolean).slice(0, 3).join(', ')}${b.legs.length > 3 ? '…' : ''}</div>
+        <div class="bet-sub">${b.legs.map((l) => esc(l.playerName || l.teamAbbr || '')).filter(Boolean).slice(0, 3).join(', ')}${b.legs.length > 3 ? '…' : ''}${voids ? ` &middot; ${voids} void` : ''}</div>
       </div>
-      <span class="amt ${delta > 0 ? 'pos' : delta < 0 ? 'neg' : ''}">${delta >= 0 ? '+' : '−'}${money(Math.abs(delta)).slice(1)}</span>
+      ${amount}
       <button class="icon-btn" data-del="${b.id}">&times;</button>
     </div>`;
   }).join('');
@@ -522,6 +548,7 @@ function renderHistory() {
       <div class="sum-card"><div class="k">Settled</div><div class="v">${done.length}</div></div>
       <div class="sum-card"><div class="k">Profit</div><div class="v ${profit >= 0 ? 'pos' : 'neg'}">${profit >= 0 ? '+' : '−'}${money(Math.abs(profit)).slice(1)}</div></div>
     </div>
+    ${unpriced ? `<div class="note">${unpriced} won bet${unpriced > 1 ? 's' : ''} left out of profit: a voided leg had no odds to re-price from. Tap Set payout and enter what the book paid.</div>` : ''}
     ${done.length ? `<div class="panel">${rows}</div>` : '<div class="empty"><div class="big">&#9776;</div><div>Nothing settled yet.</div></div>'}`;
 }
 
@@ -804,7 +831,7 @@ function route() {
 window.addEventListener('popstate', route);
 
 document.addEventListener('click', async (ev) => {
-  const t = ev.target.closest('[data-tab],[data-goto],[data-del],[data-pick-player],[data-pick-game],[data-market],[data-team],[data-rm-leg],[data-manual],[data-open-game],[data-sport],[data-day],[data-week],[data-box-side],[data-back],button');
+  const t = ev.target.closest('[data-tab],[data-goto],[data-del],[data-pick-player],[data-pick-game],[data-market],[data-team],[data-rm-leg],[data-manual],[data-open-game],[data-sport],[data-day],[data-week],[data-box-side],[data-back],[data-set-payout],button');
   if (!t) return;
 
   if (t.dataset.tab) return go(t.dataset.tab);
@@ -821,6 +848,17 @@ document.addEventListener('click', async (ev) => {
     // Came here by tapping in the app: step back to that screen. Arrived by a
     // link or a reload: there is nothing to go back to, so land on Games.
     if (state.box?.from) history.back(); else go('games');
+    return;
+  }
+  if (t.dataset.setPayout) {
+    const bet = state.bets.find((b) => b.id === t.dataset.setPayout);
+    if (!bet?.result) return;
+    const raw = prompt('A leg was voided and there were no odds to re-price from.\nWhat did the book pay back in total, stake included?');
+    if (raw == null) return;
+    const paid = Number(String(raw).replace(/[$,\s]/g, ''));
+    if (!Number.isFinite(paid) || paid < 0) { toast('Enter an amount like 42.50'); return; }
+    bet.result.payout = Math.round(paid * 100) / 100;
+    persist(); renderHistory();
     return;
   }
   if (t.dataset.boxSide) { state.box.side = t.dataset.boxSide; renderBox(); return; }
