@@ -253,7 +253,28 @@ function teamStatsHtml(b) {
   </div>`;
 }
 
-function pregameHtml(b) {
+// One team's roster before tip-off: same pinned-name table as the box score,
+// with anyone on the injury report flagged in their row.
+function rosterHtml(b, team, list) {
+  if (!list?.length) return '<div class="empty"><div class="note">Roster unavailable.</div></div>';
+  const injured = new Map(b.injuries.map((i) => [i.id, i.status]));
+  const labels = ['POS', 'HT', 'WT', 'AGE', 'EXP', 'COLLEGE'];
+  const row = (p) => {
+    const status = injured.get(p.id);
+    const tag = status ? `<span class="ros-inj${/^out$/i.test(status) ? ' out' : ''}">${esc(status)}</span>` : '';
+    const name = `<td class="name"><a class="pn" href="${esc(playerUrl(b.sport, p.id))}" target="_blank" rel="noopener">${esc(p.short)}</a>`
+      + `${p.jersey ? `<span class="jn">#${esc(p.jersey)}</span>` : ''}${tag}</td>`;
+    const exp = p.exp === 0 ? 'R' : p.exp;
+    return `<tr>${name}${[p.pos, p.ht, p.wt.replace(' lbs', ''), p.age, exp, p.college].map((v) => `<td>${esc(v)}</td>`).join('')}</tr>`;
+  };
+  // NFL rosters keep ESPN's offense / defense / special teams split.
+  const groups = new Map();
+  for (const p of list) { const k = p.group || 'Roster'; if (!groups.has(k)) groups.set(k, []); groups.get(k).push(p); }
+  const body = [...groups].map(([title, players]) => `<tr class="sec"><th class="name">${esc(title)}</th>${labels.map((l) => `<th>${l}</th>`).join('')}</tr>${players.map(row).join('')}`).join('');
+  return `<div class="box-scroll" data-scroll-key="${esc(team.abbr)}:roster"><table class="box roster">${body}</table></div>`;
+}
+
+function pregameHtml(b, side) {
   const odds = oddsText(b.odds);
   const teams = [b.away.abbr, b.home.abbr].map((abbr) => {
     const list = b.injuries.filter((i) => i.teamAbbr === abbr);
@@ -263,10 +284,15 @@ function pregameHtml(b) {
       <span class="inj-st${/^out$/i.test(i.status) ? ' out' : ''}">${esc(i.status)}</span>
       <span class="inj-why">${esc(i.detail)}</span></div>`).join('')}`;
   }).join('');
+  // Rosters first (one team at a time, like the box score), injury report last.
+  const shown = side === 'home' ? 'home' : 'away';
+  const tabs = `<div class="seg box-seg">${['away', 'home'].map((s) => `<button class="${s === shown ? 'on' : ''}" data-box-side="${s}">${esc(b[s].abbr)}</button>`).join('')}</div>`;
+  const roster = b.rosters ? rosterHtml(b, b[shown], b.rosters[shown === "home" ? 1 : 0]) : '';
   return `${odds.length ? `<div class="pg-odds">${odds.map(esc).join(' &middot; ')}</div>` : ''}
     ${b.venue ? `<div class="pg-venue">${esc(b.venue)}</div>` : ''}
-    ${teams ? `<div class="panel"><h3>Injury report</h3>${teams}</div>` : ''}
-    <div class="empty"><div class="note">The box score starts at ${b.sport === 'nfl' ? 'kickoff' : 'tip-off'}.</div></div>`;
+    <div class="pg-note">The box score starts at ${b.sport === 'nfl' ? 'kickoff' : 'tip-off'}.</div>
+    ${roster ? `${tabs}${roster}` : ''}
+    ${teams ? `<div class="panel"><h3>Injury report</h3>${teams}</div>` : ''}`;
 }
 
 /**
@@ -300,7 +326,7 @@ export function boxScoreHtml(b, { side, tracked, error, from, wide = false, feed
     parts.push(`<div class="run-line"><b>${esc(b.run.teamAbbr)}</b> on a ${b.run.for}-${b.run.against} run <span>&middot; last ${esc(b.run.span)}</span></div>`);
   }
   if (b.state === 'pre') {
-    parts.push(pregameHtml(b));
+    parts.push(pregameHtml(b, side));
     return parts.join('');
   }
 

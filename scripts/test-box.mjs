@@ -155,5 +155,19 @@ check('NFL week has a label, dates and bounds', [Boolean(week.label), Boolean(we
   check('an upcoming game shows records, not a score', /3-1.*1-2/s.test(html.slice(html.indexOf('nba:c'), html.indexOf('nba:a'))), true);
 }
 
+// --- before tip-off: roster first, injury report last ---------------------------
+{
+  const pre = { ...structuredClone(nba), state: 'pre', odds: null, venue: '', teams: [],
+    injuries: [{ teamAbbr: nba.home.abbr, id: 'p2', name: 'Hurt Guy', status: 'Out', detail: 'Knee' }],
+    rosters: [[{ id: 'p1', short: 'A. Away', jersey: '1', pos: 'G', ht: "6' 3\"", wt: '190 lbs', age: 25, exp: 0, college: 'Duke', group: null }],
+      [{ id: 'p2', short: 'H. Home', jersey: '2', pos: 'F', ht: "6' 8\"", wt: '220 lbs', age: 30, exp: 8, college: '', group: null }]] };
+  const html = (side) => boxScoreHtml(pre, { side, tracked: new Map(), from: 'games' });
+  console.log('');
+  check('pre-game shows the away roster by default', html('feed').includes('A. Away') && !html('feed').includes('H. Home'), true);
+  check('the home tab shows the home roster, injured player flagged', /H\. Home.*ros-inj out/s.test(html('home')), true);
+  check('a rookie reads R for experience', html('away').includes('<td>R</td>'), true);
+  check('the injury report comes after the roster', html('home').indexOf('Injury report') > html('home').indexOf('roster'), true);
+}
+
 console.log(`\n${failures === 0 ? 'All checks passed.' : `${failures} FAILED`}\n`);
 process.exit(failures === 0 ? 0 : 1);

@@ -478,3 +478,9 @@ a.pn:hover, a.fd-name:hover { text-decoration: underline; }
 .gs-team img { width: 18px; height: 18px; object-fit: contain; }
 .gs-team.lose { color: var(--dim); }
 .gs-dash { color: var(--dim); font-weight: 600; }
+
+/* ---------- roster before tip-off ---------- */
+.pg-note { margin-top: 6px; text-align: center; font-size: 11.5px; color: var(--dim); }
+.box.roster td:last-child, .box.roster th:last-child { text-align: left; }
+.ros-inj { margin-left: 6px; padding: 1px 5px; border-radius: 4px; font-size: 9.5px; font-weight: 800; color: var(--amber); background: rgba(255,176,32,.13); }
+.ros-inj.out { color: var(--red); background: rgba(255,77,94,.14); }

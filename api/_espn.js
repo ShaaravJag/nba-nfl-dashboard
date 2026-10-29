@@ -507,6 +507,34 @@ export function normalizeBox(sport, summary, feedLimit = 80) {
   };
 }
 
+// NFL rosters come in position groups; the practice squad and suspended list
+// aren't playing, so they're left out.
+const ROSTER_GROUPS = { offense: 'Offense', defense: 'Defense', specialTeam: 'Special teams', injuredReserveOrOut: 'Injured reserve' };
+
+function normalizeRoster(data) {
+  const out = [];
+  for (const entry of data?.athletes || []) {
+    const group = Array.isArray(entry?.items) ? entry.position : null;
+    if (group && !ROSTER_GROUPS[group]) continue;
+    for (const a of group ? entry.items : [entry]) {
+      if (!a?.id) continue;
+      out.push({
+        id: String(a.id), name: a.displayName || '', short: a.shortName || a.displayName || '',
+        jersey: a.jersey || '', pos: a.position?.abbreviation || '', ht: a.displayHeight || '', wt: a.displayWeight || '',
+        age: a.age ?? '', exp: a.experience?.years ?? '', college: a.college?.name || a.college?.shortName || '',
+        group: group ? ROSTER_GROUPS[group] : null,
+      });
+    }
+  }
+  return out;
+}
+
 export async function loadBox(sport, eventId, feedLimit = 80) {
-  return normalizeBox(sport, await fetchJson(summaryUrl(sport, eventId)), feedLimit);
+  const box = normalizeBox(sport, await fetchJson(summaryUrl(sport, eventId)), feedLimit);
+  // Before tip-off there's no box score to show, so the rosters stand in.
+  if (box.state === 'pre') {
+    const rosters = await Promise.allSettled([box.away, box.home].map((s) => fetchJson(rosterUrl(sport, s.id))));
+    box.rosters = rosters.map((r) => (r.status === 'fulfilled' ? normalizeRoster(r.value) : []));
+  }
+  return box;
 }
