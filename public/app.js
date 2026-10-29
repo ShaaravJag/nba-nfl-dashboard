@@ -4,7 +4,7 @@ import {
 } from './markets.js';
 import { createSync } from './sync.js';
 import { IMPORT_PROMPT } from './import-prompt.js';
-import { scoreboardHtml, boxScoreHtml, MARKET_COLUMNS } from './scores.js';
+import { scoreboardHtml, boxScoreHtml, otherGamesHtml, MARKET_COLUMNS } from './scores.js';
 import { feedHtml, latestPlayHtml, legMarkers } from './feed.js';
 
 const BETS_KEY = 'bt.bets.v2';
@@ -181,6 +181,7 @@ async function loadScores() {
     if (query === scoresQuery()) state.scores.error = 'Check your connection and try again.';
   }
   if (state.tab === 'games') renderGames();
+  else if (state.tab === 'game') renderBox();
 }
 
 async function loadBoxScore() {
@@ -209,14 +210,30 @@ function viewDelay() {
   if (state.tab === 'games') return state.scores.data?.games?.some((g) => g.state === 'in') ? 10000 : 60000;
   if (state.tab === 'game') {
     const s = state.box?.data?.state;
-    return s === 'post' ? null : s === 'in' ? 5000 : 30000;
+    if (s === 'in') return 5000;
+    // A finished box stops changing, but the strip of other games keeps moving.
+    return state.scores.data?.games?.some((g) => g.state === 'in') ? 15000 : s === 'post' ? 60000 : 30000;
   }
   return null;
 }
 
 async function refreshView() {
   if (state.tab === 'games') await loadScores();
-  else if (state.tab === 'game') await loadBoxScore();
+  else if (state.tab === 'game') await Promise.all([loadBoxScore(), loadStrip()]);
+}
+
+// The strip above a box score shows the Games tab's slate. Opened from a bet
+// leg or a link, that slate may be missing or for the other sport, so load the
+// game's sport (today, or the current NFL week); otherwise refresh it at most
+// every 15s.
+let stripAt = 0;
+async function loadStrip() {
+  const sport = state.box?.sport;
+  if (!sport) return;
+  if (state.scores.sport !== sport) state.scores = newScores(sport);
+  if (state.scores.data && Date.now() - stripAt < 15000) return;
+  stripAt = Date.now();
+  await loadScores();
 }
 
 function scheduleView() {
@@ -556,11 +573,21 @@ function renderBox() {
   view.innerHTML = boxScoreHtml(data, {
     side: box.side || 'feed', tracked: trackedFor(box.id), error: box.error, from: box.from,
     wide, feedPanel, strip: data ? latestPlayHtml(data) : '',
+    gameStrip: state.scores.sport === box.sport
+      ? otherGamesHtml(state.scores.data?.games, box.id, { pins: state.pins, legCounts: openLegCounts() }) : '',
   });
 
   for (const n of view.querySelectorAll('[data-scroll-key]')) {
     const left = lefts.get(n.dataset.scrollKey);
     if (left) n.scrollLeft = left;
+  }
+  // First time the strip shows (or a different game was picked): bring the
+  // open game into view; after that, leave the strip where you scrolled it.
+  const gstrip = view.querySelector('.gstrip');
+  const current = gstrip?.querySelector('.gs-chip.on');
+  if (current && (!lefts.has('gstrip') || box.stripFor !== box.id)) {
+    gstrip.scrollLeft = current.offsetLeft - (gstrip.clientWidth - current.offsetWidth) / 2;
+    box.stripFor = box.id;
   }
   view.scrollTop = top;
   const col = view.querySelector('.col-feed');
@@ -899,14 +926,18 @@ function tapTab(tab) {
 
 function openGame(sport, id, from) {
   const same = state.box?.id === id;
+  // Switching games from the strip keeps where you came from: Back still goes
+  // there, not to the previous game.
+  const inPlace = state.tab === 'game' && state.box;
+  if (inPlace) from = state.box.from;
   state.box = {
-    sport, id, from, pushed: true, scrollTop: 0, error: null,
+    sport, id, from, pushed: inPlace ? state.box.pushed : true, scrollTop: 0, error: null,
     data: same ? state.box.data : null, side: same ? state.box.side : firstSide(),
     limit: same ? state.box.limit : FEED_STEP,
   };
   state.tab = 'game';
   state.gamesView = 'game';
-  history.pushState(null, '', `#game/${sport}/${id}`);
+  history[inPlace ? 'replaceState' : 'pushState'](null, '', `#game/${sport}/${id}`);
   $('#view').scrollTop = 0;
   render();
   startView();

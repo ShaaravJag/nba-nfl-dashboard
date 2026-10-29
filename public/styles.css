@@ -464,3 +464,17 @@ table.box { width: max-content; min-width: 100%; border-collapse: separate; bord
 /* Player names open their ESPN page; they keep the text colour. */
 a.pn, a.fd-name { color: inherit; text-decoration: none; }
 a.pn:hover, a.fd-name:hover { text-decoration: underline; }
+
+/* ---------- other games above a box score ---------- */
+.gstrip { display: flex; gap: 6px; margin: 10px -14px 0; padding: 0 14px 2px; overflow-x: auto; scrollbar-width: none; }
+.gstrip::-webkit-scrollbar { display: none; }
+.gs-chip { flex: none; display: flex; flex-direction: column; gap: 3px; min-width: 116px; padding: 7px 9px; border: 1px solid var(--line); border-radius: 10px; background: var(--card); text-align: left; font-variant-numeric: tabular-nums; }
+.gs-chip.tracked { border-color: var(--accent); }
+.gs-chip.pinned { box-shadow: inset 2px 0 0 var(--amber); }
+.gs-chip.on { background: var(--card-2); box-shadow: inset 0 -3px 0 var(--accent); }
+.gs-clock { display: flex; align-items: center; gap: 4px; font-size: 10.5px; font-weight: 700; color: var(--muted); white-space: nowrap; }
+.gs-score { display: flex; align-items: center; gap: 4px; font-size: 14px; font-weight: 800; }
+.gs-team { display: inline-flex; align-items: center; gap: 4px; }
+.gs-team img { width: 18px; height: 18px; object-fit: contain; }
+.gs-team.lose { color: var(--dim); }
+.gs-dash { color: var(--dim); font-weight: 600; }

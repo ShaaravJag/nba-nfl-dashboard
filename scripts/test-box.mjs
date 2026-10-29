@@ -1,7 +1,7 @@
 // Verifies the box score and scoreboard normalizers against real finished games
 // (stable numbers) plus a synthetic stretch of plays for the scoring-run maths.
 import { loadBox, scoringRun, fetchJson, scoreboardUrl, normalizeScoreboard, weekInfo } from '../api/_espn.js';
-import { boxScoreHtml, sortGames } from '../public/scores.js';
+import { boxScoreHtml, sortGames, otherGamesHtml } from '../public/scores.js';
 
 let failures = 0;
 function check(label, actual, expected) {
@@ -139,6 +139,20 @@ check('NFL week has a label, dates and bounds', [Boolean(week.label), Boolean(we
     ['pinnedFinal', 'liveBet', 'liveEarly', 'liveLate', 'soonBet', 'soon', 'later', 'finishedBet', 'final']);
   check('nothing pinned or bet on: live, upcoming, finals', sortGames(games).map((x) => x.id),
     ['liveEarly', 'liveLate', 'liveBet', 'soon', 'later', 'soonBet', 'finishedBet', 'final', 'pinnedFinal']);
+}
+
+// --- strip of other games above a box score -----------------------------------
+{
+  const side = (abbr, score, winner, record) => ({ abbr, score, winner, record, logo: '' });
+  const g = (id, state, start, extra = {}) => ({ id, sport: 'nba', state, start, statusDetail: state === 'post' ? 'Final' : state === 'in' ? '3:33 - 3rd' : '', away: side('AWY', 101, true, '3-1'), home: side('HOM', 99, false, '1-2'), ...extra });
+  const games = [g('a', 'post', '2026-10-28T23:00Z'), g('b', 'in', '2026-10-29T00:00Z'), g('c', 'pre', '2026-10-29T02:30Z')];
+  const html = otherGamesHtml(games, 'a');
+  const chips = [...html.matchAll(/class="gs-chip ([^"]*)" data-open-game="nba:(\w+)"/g)].map((m) => [m[2], m[1].trim()]);
+  console.log('');
+  check('the strip follows the Games tab order', chips.map((c) => c[0]), ['b', 'c', 'a']);
+  check('the open game is marked', chips.find((c) => c[0] === 'a')[1], 'on');
+  check('a final shows Final and the score', /Final<\/span><span class="gs-score">.*101.*99/s.test(html.slice(html.indexOf('nba:a'))), true);
+  check('an upcoming game shows records, not a score', /3-1.*1-2/s.test(html.slice(html.indexOf('nba:c'), html.indexOf('nba:a'))), true);
 }
 
 console.log(`\n${failures === 0 ? 'All checks passed.' : `${failures} FAILED`}\n`);

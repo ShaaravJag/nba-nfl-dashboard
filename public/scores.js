@@ -269,8 +269,28 @@ function pregameHtml(b) {
     <div class="empty"><div class="note">The box score starts at ${b.sport === 'nfl' ? 'kickoff' : 'tip-off'}.</div></div>`;
 }
 
-export function boxScoreHtml(b, { side, tracked, error, from, wide = false, feedPanel = '', strip = '' }) {
-  const back = `<button class="back-btn" data-back>&#8249; ${from === 'live' ? 'Bets' : 'Games'}</button>`;
+/**
+ * The other games, as one sideways-scrolling row above a box score (REAL's
+ * top strip): clock, logos, score, in the Games tab's order. Tapping one opens
+ * it in place; the open game carries `on`.
+ */
+export function otherGamesHtml(games, currentId, ctx = {}) {
+  if (!games?.length) return '';
+  const pins = ctx.pins || {};
+  const legCounts = ctx.legCounts || new Map();
+  const chips = sortGames(games, { pins, legCounts }).map((g) => {
+    const pre = g.state === 'pre';
+    const side = (s) => `<span class="gs-team${g.state === 'post' && !s.winner ? ' lose' : ''}">${s.logo ? `<img src="${esc(s.logo)}" alt="" loading="lazy">` : ''}${pre ? esc(s.record) : s.score}</span>`;
+    const clock = g.state === 'in' ? `<span class="live-dot"></span>${esc(statusText(g))}` : esc(statusText(g));
+    const cls = [g.id === currentId && 'on', pins[pinKey(g)] && 'pinned', legCounts.get(g.id) && 'tracked'].filter(Boolean).join(' ');
+    return `<button class="gs-chip ${cls}" data-open-game="${esc(g.sport)}:${esc(g.id)}">
+      <span class="gs-clock">${clock}</span><span class="gs-score">${side(g.away)}<span class="gs-dash">-</span>${side(g.home)}</span></button>`;
+  });
+  return `<div class="gstrip" data-scroll-key="gstrip">${chips.join('')}</div>`;
+}
+
+export function boxScoreHtml(b, { side, tracked, error, from, wide = false, feedPanel = '', strip = '', gameStrip = '' }) {
+  const back = `${gameStrip}<button class="back-btn" data-back>&#8249; ${from === 'live' ? 'Bets' : 'Games'}</button>`;
   if (!b) {
     return `${back}<div class="empty"><div class="note">${esc(error || 'Loading box score…')}</div></div>`;
   }
