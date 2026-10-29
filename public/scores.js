@@ -53,14 +53,21 @@ const oddsText = (odds) => [odds?.spread, odds?.total != null ? `O/U ${odds.tota
 // --- Games tab --------------------------------------------------------------
 
 const ORDER = { in: 0, pre: 1, post: 2 };
-const sortGames = (games) => [...games].sort((a, b) =>
-  (ORDER[a.state] ?? 1) - (ORDER[b.state] ?? 1) || String(a.start).localeCompare(String(b.start)));
+export const pinKey = (g) => `${g.sport}:${g.id}`;
+
+// Your pinned games first, then games you have bets on, then the rest; inside
+// each group live games lead, then upcoming by start time, then finals.
+export function sortGames(games, { pins = {}, legCounts = new Map() } = {}) {
+  const group = (g) => (pins[pinKey(g)] ? 0 : legCounts.get(g.id) ? 1 : 2);
+  return [...games].sort((a, b) => group(a) - group(b)
+    || (ORDER[a.state] ?? 1) - (ORDER[b.state] ?? 1) || String(a.start).localeCompare(String(b.start)));
+}
 
 // The clock sits alone in the top-right corner, beside the first score, so
 // both team names get the tile's full width (a status column down the side
 // cut "Timberwolves" to "Timber…" on a phone). Network, odds and your legs go
 // in a footer.
-function tileHtml(g, legs) {
+function tileHtml(g, legs, pinned) {
   const pre = g.state === 'pre';
   const final = g.state === 'post';
   const side = (s) => {
@@ -75,16 +82,18 @@ function tileHtml(g, legs) {
   if (g.downDistance) foot.push(`<span class="gt-net">${esc(g.downDistance)}</span>`);
   if (pre && oddsText(g.odds).length) foot.push(`<span class="gt-odds">${oddsText(g.odds).map(esc).join(' &middot; ')}</span>`);
   if (legs) foot.push(`<span class="gt-bets">${legs} leg${legs === 1 ? '' : 's'}</span>`);
+  // Pinning lives inside the tile but must not open the game (see app.js).
+  foot.push(`<span class="gt-pin${pinned ? ' on' : ''}" role="button" data-pin="${esc(pinKey(g))}" aria-label="${pinned ? 'Unpin' : 'Pin'} game">${pinned ? '&#9733;' : '&#9734;'}</span>`);
   const clock = g.state === 'in' ? `<span class="live-dot"></span>${esc(statusText(g))}` : esc(statusText(g));
-  return `<button class="gtile ${esc(g.state)}${legs ? ' tracked' : ''}${g.redZone ? ' redzone' : ''}" data-open-game="${esc(g.sport)}:${esc(g.id)}">
+  return `<button class="gtile ${esc(g.state)}${legs ? ' tracked' : ''}${pinned ? ' pinned' : ''}${g.redZone ? ' redzone' : ''}" data-open-game="${esc(g.sport)}:${esc(g.id)}">
     <div class="gt-clock">${clock}</div>
     ${side(g.away)}${side(g.home)}
-    ${foot.length ? `<div class="gt-foot">${foot.join('')}</div>` : ''}
+    <div class="gt-foot">${foot.join('')}</div>
   </button>`;
 }
 
-const gridHtml = (games, legCounts) =>
-  `<div class="games-grid">${sortGames(games).map((g) => tileHtml(g, legCounts.get(g.id))).join('')}</div>`;
+const gridHtml = (games, ctx) => `<div class="games-grid">${sortGames(games, ctx)
+  .map((g) => tileHtml(g, ctx.legCounts.get(g.id), !!ctx.pins[pinKey(g)])).join('')}</div>`;
 
 // Seven days around the server's sports day (Eastern, rolling over at 6am), not
 // the phone's clock, so the strip and the slate always agree.
@@ -126,7 +135,8 @@ function byDay(games) {
   return [...days];
 }
 
-export function scoreboardHtml(scores, { legCounts }) {
+export function scoreboardHtml(scores, { legCounts, pins = {} }) {
+  const ctx = { legCounts, pins };
   const { sport, data } = scores;
   const sportSeg = `<div class="seg">${['nba', 'nfl'].map((s) =>
     `<button class="${s === sport ? 'on' : ''}" data-sport="${s}">${s.toUpperCase()}</button>`).join('')}</div>`;
@@ -140,9 +150,9 @@ export function scoreboardHtml(scores, { legCounts }) {
   } else if (!data.games.length) {
     body = `<div class="empty"><div>No ${sport.toUpperCase()} games ${sport === 'nfl' ? 'this week' : 'on this day'}.</div></div>`;
   } else if (sport === 'nfl') {
-    body = byDay(data.games).map(([day, games]) => `<div class="day-head">${esc(day)}</div>${gridHtml(games, legCounts)}`).join('');
+    body = byDay(data.games).map(([day, games]) => `<div class="day-head">${esc(day)}</div>${gridHtml(games, ctx)}`).join('');
   } else {
-    body = gridHtml(data.games, legCounts);
+    body = gridHtml(data.games, ctx);
   }
   return `<div class="games-top">${sportSeg}${nav}</div>${body}`;
 }

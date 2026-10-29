@@ -1,7 +1,7 @@
 // Verifies the box score and scoreboard normalizers against real finished games
 // (stable numbers) plus a synthetic stretch of plays for the scoring-run maths.
 import { loadBox, scoringRun, fetchJson, scoreboardUrl, normalizeScoreboard, weekInfo } from '../api/_espn.js';
-import { boxScoreHtml } from '../public/scores.js';
+import { boxScoreHtml, sortGames } from '../public/scores.js';
 
 let failures = 0;
 function check(label, actual, expected) {
@@ -124,6 +124,16 @@ check('NFL week has a label, dates and bounds', [Boolean(week.label), Boolean(we
   const unknown = structuredClone(live);
   for (const r of unknown.teams[0].groups[0].rows) r.onCourt = false;
   check('live with no lineup falls back to Starters', sections(render(unknown)).map((x) => x.title), ['Starters', 'Bench']);
+}
+
+// --- Games tab order: pins, then your bets, then the rest ----------------------
+{
+  const g = (id, state, start) => ({ id, sport: 'nba', state, start });
+  const games = [g('final', 'post', '1'), g('pinnedFinal', 'post', '2'), g('liveBet', 'in', '3'), g('live', 'in', '4'), g('later', 'pre', '5'), g('soon', 'pre', '4')];
+  const order = sortGames(games, { pins: { 'nba:pinnedFinal': 1 }, legCounts: new Map([['liveBet', 2]]) }).map((x) => x.id);
+  console.log('');
+  check('pinned first, then bet games, then live / upcoming / final', order, ['pinnedFinal', 'liveBet', 'live', 'soon', 'later', 'final']);
+  check('with nothing pinned, the old order holds', sortGames(games).map((x) => x.id), ['liveBet', 'live', 'soon', 'later', 'final', 'pinnedFinal']);
 }
 
 console.log(`\n${failures === 0 ? 'All checks passed.' : `${failures} FAILED`}\n`);

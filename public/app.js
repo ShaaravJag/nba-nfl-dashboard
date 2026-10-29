@@ -9,6 +9,8 @@ import { feedHtml, latestPlayHtml, legMarkers } from './feed.js';
 
 const BETS_KEY = 'bt.bets.v2';
 const PREFS_KEY = 'bt.prefs.v1';
+const PINS_KEY = 'bt.pins.v1';
+const PIN_DAYS = 3;          // pinned games drop off after this, so finished ones don't pile up
 const BOOKS = ['FanDuel', 'DraftKings', 'BetMGM', 'Caesars', 'ESPN BET', 'Fanatics', 'Other'];
 
 const $ = (sel, root = document) => root.querySelector(sel);
@@ -23,6 +25,7 @@ const prefs = load(PREFS_KEY, { sound: true, book: 'FanDuel' });
 
 const state = {
   bets: load(BETS_KEY, []),
+  pins: freshPins(load(PINS_KEY, {})),
   prefs,
   games: {},
   slate: null,
@@ -53,15 +56,23 @@ function newScores(sport = 'nba') {
 function persist({ push = true } = {}) {
   save(BETS_KEY, state.bets);
   save(PREFS_KEY, state.prefs);
-  if (push) sync.push(state.bets);
+  save(PINS_KEY, state.pins);
+  if (push) sync.push(state.bets, state.pins);
+}
+
+// { "nba:401909868": pinnedAt }, minus anything older than PIN_DAYS.
+function freshPins(pins) {
+  const cutoff = Date.now() - PIN_DAYS * 86400000;
+  return Object.fromEntries(Object.entries(pins || {}).filter(([, at]) => at > cutoff));
 }
 
 // ---------------------------------------------------------------- sync
 
 const sync = createSync({
-  onRemote(bets) {
+  onRemote(bets, pins) {
     state.bets = bets;
     save(BETS_KEY, bets);
+    if (pins) { state.pins = freshPins(pins); save(PINS_KEY, state.pins); }
     render();
     toast('Synced from your other device');
   },
@@ -486,7 +497,7 @@ function renderLive() {
 function renderGames() {
   const view = $('#view');
   const top = view.scrollTop;
-  view.innerHTML = scoreboardHtml(state.scores, { legCounts: openLegCounts() });
+  view.innerHTML = scoreboardHtml(state.scores, { legCounts: openLegCounts(), pins: state.pins });
   view.scrollTop = top;
 }
 
@@ -955,6 +966,15 @@ document.addEventListener('click', async (ev) => {
   if (t.id === 'btn-settings') return go('settings');
   if (t.id === 'btn-refresh') { await Promise.all([poll(), refreshView()]); toast('Refreshed'); return; }
 
+  // The pin sits inside a game tile, so it is checked before the tile opens.
+  const pin = ev.target.closest('[data-pin]');
+  if (pin) {
+    const key = pin.dataset.pin;
+    if (state.pins[key]) delete state.pins[key]; else state.pins[key] = Date.now();
+    persist();
+    renderGames();
+    return;
+  }
   if (t.dataset.openGame) {
     const [sport, id] = t.dataset.openGame.split(':');
     if (sport && id) openGame(sport, id, state.tab);

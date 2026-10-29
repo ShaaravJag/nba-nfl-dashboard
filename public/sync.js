@@ -46,20 +46,21 @@ export function createSync({ onRemote }) {
       if (stamp > lastSeen && Array.isArray(rows[0].payload?.bets)) {
         lastSeen = stamp;
         localStorage.setItem(SEEN_KEY, String(stamp));
-        onRemote(rows[0].payload.bets);
+        // Rows written before pins existed have none; keep this device's then.
+        onRemote(rows[0].payload.bets, rows[0].payload.pins);
       }
     } catch (err) {
       status = `offline (${err.message})`;
     }
   }
 
-  async function pushNow(bets) {
+  async function pushNow(bets, pins) {
     if (!enabled || !code) return;
     try {
       const res = await fetch(`${url()}?on_conflict=id`, {
         method: 'POST',
         headers: { ...headers(), Prefer: 'resolution=merge-duplicates,return=representation' },
-        body: JSON.stringify({ id: code, payload: { bets }, updated_at: new Date().toISOString() }),
+        body: JSON.stringify({ id: code, payload: { bets, pins }, updated_at: new Date().toISOString() }),
       });
       if (!res.ok) throw new Error(`push ${res.status}`);
       const rows = await res.json();
@@ -82,10 +83,10 @@ export function createSync({ onRemote }) {
       pullTimer = setInterval(() => { if (!document.hidden) pull(); }, PULL_MS);
     },
     // Debounced so a burst of edits is one write.
-    push(bets) {
+    push(bets, pins = {}) {
       if (!enabled) return;
       clearTimeout(pushTimer);
-      pushTimer = setTimeout(() => pushNow(bets), 600);
+      pushTimer = setTimeout(() => pushNow(bets, pins), 600);
     },
     setCode(next) {
       code = next;
