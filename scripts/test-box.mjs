@@ -92,8 +92,9 @@ check('NFL week has a label, dates and bounds', [Boolean(week.label), Boolean(we
     const table = html.slice(html.indexOf('<table class="box">'), html.indexOf('</table>', html.indexOf('<table class="box">')));
     return table.split('<tr class="sec">').slice(1).map((part) => ({
       title: (part.match(/<th class="name">([^<]*)<\/th>/) || [])[1],
-      players: [...part.matchAll(/<span class="pn">([^<]*)<\/span>/g)].map((m) => m[1]),
-      dotted: [...part.matchAll(/<span class="starter-dot"[^>]*><\/span><span class="pn">([^<]*)<\/span>/g)].map((m) => m[1]),
+      players: [...part.matchAll(/class="pn"[^>]*>([^<]*)</g)].map((m) => m[1]),
+      dotted: [...part.matchAll(/<span class="starter-dot"[^>]*><\/span><a class="pn"[^>]*>([^<]*)</g)].map((m) => m[1]),
+      links: [...part.matchAll(/<a class="pn" href="([^"]*)"/g)].map((m) => m[1]),
     }));
   };
   const render = (box) => boxScoreHtml(box, { side: 'away', tracked: new Map(), error: null, from: 'games' });
@@ -120,6 +121,7 @@ check('NFL week has a label, dates and bounds', [Boolean(week.label), Boolean(we
   check('live: the dot marks every starter, wherever he is', [...court.dotted, ...bench.dotted].sort(), names(starters).sort());
   check('live: subs on the floor carry no dot', court.dotted.filter((n) => names(subs.slice(0, 2)).includes(n)), []);
   check('live: a legend says what the dot means', html.includes('Started the game'), true);
+  check('player names link to their ESPN page', court.links[0], `https://www.espn.com/nba/player/_/id/${rows.find((r) => r.onCourt).id}`);
 
   const unknown = structuredClone(live);
   for (const r of unknown.teams[0].groups[0].rows) r.onCourt = false;
@@ -129,11 +131,14 @@ check('NFL week has a label, dates and bounds', [Boolean(week.label), Boolean(we
 // --- Games tab order: pins, then your bets, then the rest ----------------------
 {
   const g = (id, state, start) => ({ id, sport: 'nba', state, start });
-  const games = [g('final', 'post', '1'), g('pinnedFinal', 'post', '2'), g('liveBet', 'in', '3'), g('live', 'in', '4'), g('later', 'pre', '5'), g('soon', 'pre', '4')];
-  const order = sortGames(games, { pins: { 'nba:pinnedFinal': 1 }, legCounts: new Map([['liveBet', 2]]) }).map((x) => x.id);
+  const games = [g('final', 'post', '1'), g('pinnedFinal', 'post', '2'), g('liveBet', 'in', '3'), g('live', 'in', '4'),
+    g('later', 'pre', '6'), g('soon', 'pre', '5'), g('finishedBet', 'post', '0')];
+  const ctx = { pins: { 'nba:pinnedFinal': 1 }, legCounts: new Map([['liveBet', 2], ['finishedBet', 1]]) };
   console.log('');
-  check('pinned first, then bet games, then live / upcoming / final', order, ['pinnedFinal', 'liveBet', 'live', 'soon', 'later', 'final']);
-  check('with nothing pinned, the old order holds', sortGames(games).map((x) => x.id), ['liveBet', 'live', 'soon', 'later', 'final', 'pinnedFinal']);
+  check('pins first, then unfinished bet games, then everything by start time', sortGames(games, ctx).map((x) => x.id),
+    ['pinnedFinal', 'liveBet', 'finishedBet', 'final', 'live', 'soon', 'later']);
+  check('nothing pinned or bet on: plain start-time order', sortGames(games).map((x) => x.id),
+    ['finishedBet', 'final', 'pinnedFinal', 'liveBet', 'live', 'soon', 'later']);
 }
 
 console.log(`\n${failures === 0 ? 'All checks passed.' : `${failures} FAILED`}\n`);

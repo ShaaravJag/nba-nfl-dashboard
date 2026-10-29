@@ -52,15 +52,15 @@ const oddsText = (odds) => [odds?.spread, odds?.total != null ? `O/U ${odds.tota
 
 // --- Games tab --------------------------------------------------------------
 
-const ORDER = { in: 0, pre: 1, post: 2 };
 export const pinKey = (g) => `${g.sport}:${g.id}`;
 
-// Your pinned games first, then games you have bets on, then the rest; inside
-// each group live games lead, then upcoming by start time, then finals.
+// Your pinned games first, then games you have bets on that aren't over yet;
+// once a bet game finishes it drops back into place. Each group, and the rest,
+// runs in listed start-time order.
 export function sortGames(games, { pins = {}, legCounts = new Map() } = {}) {
-  const group = (g) => (pins[pinKey(g)] ? 0 : legCounts.get(g.id) ? 1 : 2);
+  const group = (g) => (pins[pinKey(g)] ? 0 : legCounts.get(g.id) && g.state !== 'post' ? 1 : 2);
   return [...games].sort((a, b) => group(a) - group(b)
-    || (ORDER[a.state] ?? 1) - (ORDER[b.state] ?? 1) || String(a.start).localeCompare(String(b.start)));
+    || String(a.start).localeCompare(String(b.start)) || String(a.id).localeCompare(String(b.id)));
 }
 
 // The clock sits alone in the top-right corner, beside the first score, so
@@ -184,10 +184,12 @@ function linescoreHtml(b) {
     <tbody>${[b.away, b.home].map((s) => `<tr><td class="ls-team">${esc(s.abbr)}</td>${cells(s)}<td class="ls-t">${s.score}</td></tr>`).join('')}</tbody></table>`;
 }
 
-function playerRowHtml(r, labels, colKey, tracked, state, starterDot = false) {
+export const playerUrl = (sport, id) => `https://www.espn.com/${sport}/player/_/id/${encodeURIComponent(id)}`;
+
+function playerRowHtml(r, labels, colKey, tracked, state, sport, starterDot = false) {
   const marks = tracked.get(r.id);
   const dot = starterDot && r.starter ? '<span class="starter-dot" title="Started the game"></span>' : '';
-  const name = `<td class="name">${dot}<span class="pn">${esc(r.short)}</span>`
+  const name = `<td class="name">${dot}<a class="pn" href="${esc(playerUrl(sport, r.id))}" target="_blank" rel="noopener">${esc(r.short)}</a>`
     + `${r.jersey ? `<span class="jn">#${esc(r.jersey)}</span>` : ''}${r.ejected ? '<span class="ej">EJ</span>' : ''}</td>`;
   if (r.dnp) {
     // ESPN flags unused players DNP mid-game too; its site only calls it a DNP
@@ -222,7 +224,7 @@ function teamTablesHtml(b, team, tracked) {
     const live = onFloor.length > 0;
     const top = live ? onFloor : g.rows.filter((r) => r.starter);
     const rest = g.rows.filter((r) => !top.includes(r));    // ESPN order: sitting starters, subs, DNPs
-    const row = (r) => playerRowHtml(r, g.labels, (l) => l, tracked, b.state, live);
+    const row = (r) => playerRowHtml(r, g.labels, (l) => l, tracked, b.state, b.sport, live);
     return `<div class="box-scroll" data-scroll-key="${esc(team.abbr)}:players"><table class="box">
       ${headRow(live ? 'On court' : 'Starters', g.labels)}${top.map(row).join('')}
       ${headRow('Bench', g.labels)}${rest.map(row).join('')}
@@ -230,7 +232,7 @@ function teamTablesHtml(b, team, tracked) {
       ${live ? '<div class="box-legend"><span class="starter-dot"></span>Started the game</div>' : ''}`;
   }
   return team.groups.map((g) => {
-    const row = (r) => playerRowHtml(r, g.labels, (l) => `${g.name}:${l}`, tracked, b.state);
+    const row = (r) => playerRowHtml(r, g.labels, (l) => `${g.name}:${l}`, tracked, b.state, b.sport);
     return `<div class="box-scroll" data-scroll-key="${esc(team.abbr)}:${esc(g.name)}"><table class="box">
       ${headRow(NFL_TITLES[g.name] || g.title, g.labels)}${g.rows.map(row).join('')}${totalsRows(g)}</table></div>`;
   }).join('');

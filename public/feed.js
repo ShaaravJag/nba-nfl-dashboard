@@ -1,6 +1,7 @@
 // HTML for the live play-by-play feed. Pure functions of the data they're
 // handed, like scores.js -- app.js owns fetching, polling and state.
 import { MARKETS, resolveMarket, lastName } from './markets.js';
+import { playerUrl } from './scores.js';
 
 const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 
@@ -89,8 +90,8 @@ function cardHtml(item, box, players, ctx) {
     <div class="fd-main">
       <div class="fd-meta"><span>${esc(box.away.abbr)} ${item.away}-${item.home} ${esc(box.home.abbr)} &middot; ${periodLabel(item.q)} ${esc(item.clock)}</span>${swingHtml(item.swing, item.side, box)}</div>
       <div class="fd-title">${esc(item.title)}</div>
-      ${a ? `<div class="fd-line"><b>${esc(a.name)}</b> &middot; ${esc(item.a.line)}</div>` : ''}
-      ${b ? `<div class="fd-line sub">${esc(b.name)} &middot; ${esc(item.b.line)}</div>` : ''}
+      ${a ? `<div class="fd-line"><a class="fd-name" href="${esc(playerUrl(box.sport, item.a.id))}" target="_blank" rel="noopener"><b>${esc(a.name)}</b></a> &middot; ${esc(item.a.line)}</div>` : ''}
+      ${b ? `<div class="fd-line sub"><a class="fd-name" href="${esc(playerUrl(box.sport, item.b.id))}" target="_blank" rel="noopener">${esc(b.name)}</a> &middot; ${esc(item.b.line)}</div>` : ''}
       ${marks.length || notes.length ? `<div class="fd-notes">${marks.join('')}${notes.join('')}</div>` : ''}
     </div>
   </div>`;

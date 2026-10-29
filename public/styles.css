@@ -460,3 +460,7 @@ table.box { width: max-content; min-width: 100%; border-collapse: separate; bord
 .gt-pin { margin-left: auto; padding: 0 2px; font-size: 15px; line-height: 1; color: var(--dim); cursor: pointer; }
 .gt-bets + .gt-pin { margin-left: 4px; }
 .gt-pin.on { color: var(--amber); }
+
+/* Player names open their ESPN page; they keep the text colour. */
+a.pn, a.fd-name { color: inherit; text-decoration: none; }
+a.pn:hover, a.fd-name:hover { text-decoration: underline; }
