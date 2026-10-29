@@ -54,11 +54,16 @@ const oddsText = (odds) => [odds?.spread, odds?.total != null ? `O/U ${odds.tota
 
 export const pinKey = (g) => `${g.sport}:${g.id}`;
 
-// Your pinned games first, then games you have bets on that aren't over yet;
-// once a bet game finishes it drops back into place. Each group, and the rest,
-// runs in listed start-time order.
+// Pinned games, then live games (yours first), then upcoming (yours first),
+// then finals -- a finished bet game drops in with the other finals. Each
+// group runs earliest start first.
+const STATE_RANK = { in: 1, pre: 3, post: 5 };
 export function sortGames(games, { pins = {}, legCounts = new Map() } = {}) {
-  const group = (g) => (pins[pinKey(g)] ? 0 : legCounts.get(g.id) && g.state !== 'post' ? 1 : 2);
+  const group = (g) => {
+    if (pins[pinKey(g)]) return 0;
+    const rank = STATE_RANK[g.state] ?? 3;
+    return rank < 5 && legCounts.get(g.id) ? rank : rank + (rank < 5 ? 1 : 0);
+  };
   return [...games].sort((a, b) => group(a) - group(b)
     || String(a.start).localeCompare(String(b.start)) || String(a.id).localeCompare(String(b.id)));
 }

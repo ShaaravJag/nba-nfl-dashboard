@@ -131,14 +131,14 @@ check('NFL week has a label, dates and bounds', [Boolean(week.label), Boolean(we
 // --- Games tab order: pins, then your bets, then the rest ----------------------
 {
   const g = (id, state, start) => ({ id, sport: 'nba', state, start });
-  const games = [g('final', 'post', '1'), g('pinnedFinal', 'post', '2'), g('liveBet', 'in', '3'), g('live', 'in', '4'),
-    g('later', 'pre', '6'), g('soon', 'pre', '5'), g('finishedBet', 'post', '0')];
-  const ctx = { pins: { 'nba:pinnedFinal': 1 }, legCounts: new Map([['liveBet', 2], ['finishedBet', 1]]) };
+  const games = [g('final', 'post', '1'), g('pinnedFinal', 'post', '2'), g('liveBet', 'in', '4'), g('liveLate', 'in', '3'),
+    g('liveEarly', 'in', '2'), g('later', 'pre', '6'), g('soonBet', 'pre', '7'), g('soon', 'pre', '5'), g('finishedBet', 'post', '0')];
+  const ctx = { pins: { 'nba:pinnedFinal': 1 }, legCounts: new Map([['liveBet', 2], ['finishedBet', 1], ['soonBet', 1]]) };
   console.log('');
-  check('pins first, then unfinished bet games, then everything by start time', sortGames(games, ctx).map((x) => x.id),
-    ['pinnedFinal', 'liveBet', 'finishedBet', 'final', 'live', 'soon', 'later']);
-  check('nothing pinned or bet on: plain start-time order', sortGames(games).map((x) => x.id),
-    ['finishedBet', 'final', 'pinnedFinal', 'liveBet', 'live', 'soon', 'later']);
+  check('pinned, live with bets, live, upcoming (bets first), finals -- each earliest first', sortGames(games, ctx).map((x) => x.id),
+    ['pinnedFinal', 'liveBet', 'liveEarly', 'liveLate', 'soonBet', 'soon', 'later', 'finishedBet', 'final']);
+  check('nothing pinned or bet on: live, upcoming, finals', sortGames(games).map((x) => x.id),
+    ['liveEarly', 'liveLate', 'liveBet', 'soon', 'later', 'soonBet', 'finishedBet', 'final', 'pinnedFinal']);
 }
 
 console.log(`\n${failures === 0 ? 'All checks passed.' : `${failures} FAILED`}\n`);
