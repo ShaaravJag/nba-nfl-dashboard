@@ -513,11 +513,23 @@ function betHtml(bet) {
       ? `<span class="repriced">${price.payout == null ? 're-price needs leg odds' : 're-priced'}</span>` : null,
   ].filter(Boolean).join('  ·  ');
 
-  return `<article class="bet ${status}" data-bet="${bet.id}">
-    <div class="bet-head">
+  // Folded, a card keeps its header and a one-line count of where the legs stand.
+  const folded = !!state.prefs.collapsed?.[bet.id];
+  const count = (...ss) => results.filter((r) => ss.includes(r.status)).length;
+  const tally = [
+    count('hit', 'won') && `${count('hit', 'won')} ✓`,
+    count('bust', 'lost') && `${count('bust', 'lost')} ✗`,
+    count('live', 'unknown') && `${count('live', 'unknown')} live`,
+    count('pending') && `${count('pending')} to go`,
+  ].filter(Boolean).join(' · ');
+
+  return `<article class="bet ${status}${folded ? ' collapsed' : ''}" data-bet="${bet.id}">
+    <div class="bet-head" data-collapse="${bet.id}">
       <span class="book ${esc((bet.book || '').toLowerCase().replace(/\s/g, ''))}">${esc(bet.book || 'Bet')}</span>
       <span class="bet-title">${title}</span>
+      ${folded && tally ? `<span class="bet-count">${tally}</span>` : ''}
       <span class="spacer" style="flex:1"></span>
+      <button class="icon-btn fold" data-collapse="${bet.id}" title="${folded ? 'Show legs' : 'Hide legs'}">&#8964;</button>
       <button class="icon-btn" data-del="${bet.id}" title="Delete bet">&times;</button>
     </div>
     <div class="bet-meta">
@@ -531,6 +543,9 @@ function betHtml(bet) {
 }
 
 function renderLive() {
+  // Forget folds for bets that are gone or settled.
+  const c = state.prefs.collapsed;
+  if (c) for (const id of Object.keys(c)) if (!state.bets.some((b) => b.id === id && !b.result)) delete c[id];
   const view = $('#view');
   const open = state.bets.filter((b) => !b.result);
   const atRisk = open.reduce((a, b) => a + (Number(b.stake) || 0), 0);
@@ -1078,7 +1093,7 @@ function route() {
 window.addEventListener('popstate', route);
 
 document.addEventListener('click', async (ev) => {
-  const t = ev.target.closest('[data-tab],[data-goto],[data-del],[data-pick-player],[data-pick-game],[data-market],[data-team],[data-rm-leg],[data-manual],[data-open-game],[data-sport],[data-day],[data-week],[data-box-side],[data-back],[data-set-payout],[data-feed-more],button');
+  const t = ev.target.closest('[data-tab],[data-goto],[data-del],[data-pick-player],[data-pick-game],[data-market],[data-team],[data-rm-leg],[data-manual],[data-open-game],[data-sport],[data-day],[data-week],[data-box-side],[data-back],[data-set-payout],[data-feed-more],[data-collapse],button');
   if (!t) return;
 
   if (t.dataset.tab) return tapTab(t.dataset.tab);
@@ -1159,6 +1174,13 @@ document.addEventListener('click', async (ev) => {
     renderGames(); startView(); return;
   }
 
+  if (t.dataset.collapse) {
+    const c = (state.prefs.collapsed ||= {});
+    if (c[t.dataset.collapse]) delete c[t.dataset.collapse]; else c[t.dataset.collapse] = true;
+    persist({ push: false });
+    renderLive();
+    return;
+  }
   if (t.dataset.del) {
     const bet = state.bets.find((b) => b.id === t.dataset.del);
     if (bet && confirm('Delete this bet?')) {
