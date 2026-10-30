@@ -295,6 +295,8 @@ export function normalizeScoreboard(sport, board) {
       possession: sport === 'nfl' && live && situation.possession ? String(situation.possession) : null,
       redZone: sport === 'nfl' && live && !!situation.isRedZone,
       downDistance: sport === 'nfl' && live ? situation.shortDownDistanceText || situation.downDistanceText || null : null,
+      // Forecast for outdoor games that haven't started; domes have none.
+      weather: state === 'pre' && event.weather ? { temp: event.weather.temperature ?? null, text: event.weather.displayValue || '' } : null,
       home: tile(home),
       away: tile(away),
     };

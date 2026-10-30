@@ -484,3 +484,103 @@ a.pn:hover, a.fd-name:hover { text-decoration: underline; }
 .box.roster td:last-child, .box.roster th:last-child { text-align: left; }
 .ros-inj { margin-left: 6px; padding: 1px 5px; border-radius: 4px; font-size: 9.5px; font-weight: 800; color: var(--amber); background: rgba(255,176,32,.13); }
 .ros-inj.out { color: var(--red); background: rgba(255,77,94,.14); }
+
+/* ---------- fantasy ---------- */
+/* Sleeper's matchup screen. Every number has its own grid cell, so names,
+   points and stat lines can't run into each other; long text ends in "…". */
+.games-top .seg.sub { margin-top: 8px; }
+.fx-chips { display: flex; gap: 6px; margin: 12px 0 0; }
+.fx-chip { flex: 1 1 0; min-width: 0; text-align: left; background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 7px 9px; }
+.fx-chip.on { border-color: var(--accent); }
+.fx-chip-name { display: flex; align-items: center; gap: 5px; font-size: 11px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.fx-chip-score { display: block; margin-top: 2px; font-size: 13px; color: var(--muted); font-variant-numeric: tabular-nums; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.fx-chip-score b { color: var(--text); font-weight: 750; }
+.fx-chip-score b.lead { color: var(--green); }
+.fx-chip-score b.trail { color: var(--red); }
+
+.fx { margin-top: 12px; }
+.fx-head { display: grid; grid-template-columns: minmax(0, 1fr) 24px minmax(0, 1fr); gap: 6px; }
+.fx-vs { align-self: center; text-align: center; font-size: 10px; font-weight: 800; color: var(--dim); }
+.fx-team { min-width: 0; background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 9px 10px; display: grid; column-gap: 8px; row-gap: 7px; align-items: center; }
+.fx-team.l { grid-template-columns: 30px minmax(0, 1fr); grid-template-areas: "av who" "score score" "sub sub"; }
+.fx-team.r { grid-template-columns: minmax(0, 1fr) 30px; grid-template-areas: "who av" "score score" "sub sub"; text-align: right; }
+.fx-team.bye { display: grid; place-items: center; color: var(--dim); }
+.fx-av { grid-area: av; width: 30px; height: 30px; border-radius: 50%; object-fit: cover; background: var(--card-2); display: grid; place-items: center; font-size: 11px; font-weight: 800; color: var(--muted); }
+.fx-who { grid-area: who; min-width: 0; }
+.fx-owner { font-size: 10.5px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.fx-tname { font-size: 13.5px; font-weight: 750; line-height: 1.25; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow-wrap: anywhere; }
+.fx-score { grid-area: score; font-size: 24px; font-weight: 800; line-height: 1; font-variant-numeric: tabular-nums; }
+.fx-team.l .fx-score { text-align: right; }
+.fx-team.r .fx-score { text-align: left; }
+.fx-sub { grid-area: sub; min-width: 0; font-size: 10.5px; color: var(--muted); font-variant-numeric: tabular-nums; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+.fx-wp { display: flex; align-items: center; gap: 8px; margin: 10px 2px 0; font-size: 12px; font-weight: 750; font-variant-numeric: tabular-nums; }
+.fx-wp-bar { flex: 1; display: flex; gap: 2px; height: 6px; border-radius: 3px; overflow: hidden; background: var(--line); }
+.fx-wp-bar i:first-child { background: var(--green); }
+.fx-wp-bar i:last-child { background: var(--red); }
+.fx-ytp { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 12px; margin: 8px 2px 0; font-size: 11px; color: var(--muted); }
+.fx-ytp .r { text-align: right; }
+.fx-ytp b { display: block; color: var(--text); font-weight: 650; }
+.fx-final { margin: 10px 2px 0; text-align: center; font-size: 12px; font-weight: 650; color: var(--muted); }
+
+.fx-sec { display: flex; align-items: center; justify-content: space-between; gap: 10px; width: 100%; margin: 16px 0 8px; padding: 0 2px; font-size: 14px; font-weight: 750; color: var(--text); }
+.fx-week { display: flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 650; color: var(--muted); }
+.fx-week select { width: auto; padding: 4px 8px; font-size: 12.5px; border-radius: 8px; background: var(--card); }
+.fx-toggle .fx-more { font-size: 12px; font-weight: 650; color: var(--accent); }
+
+.fx-row { display: grid; grid-template-columns: minmax(0, 1fr) 30px minmax(0, 1fr); gap: 5px; margin-bottom: 6px; }
+.fx-slot { align-self: center; justify-self: center; width: 30px; height: 30px; border-radius: 50%; background: var(--card-2); display: grid; place-items: center; font-size: 9.5px; font-weight: 800; color: var(--muted); }
+.fx-slot.qb { color: #ff5c8a; }
+.fx-slot.rb { color: #2fd8c2; }
+.fx-slot.wr { color: #5aa9ff; }
+.fx-slot.te { color: #ffaf5f; }
+.fx-slot.k { color: #c27dff; }
+.fx-slot.def { color: #d09464; }
+.fx-cell { min-width: 0; background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 7px 8px 6px; display: grid; column-gap: 6px; row-gap: 1px; align-items: center; }
+/* Name gets the whole first line; position, projection and points share the
+   second, points nearest the slot badge, the way the two sides face each other. */
+.fx-cell.l { grid-template-columns: 26px minmax(0, 1fr) auto auto; grid-template-areas: "img name name name" "meta meta proj pts" "bar bar bar bar" "game game game game" "stat stat stat stat"; }
+.fx-cell.r { grid-template-columns: auto auto minmax(0, 1fr) 26px; grid-template-areas: "name name name img" "pts proj meta meta" "bar bar bar bar" "game game game game" "stat stat stat stat"; text-align: right; }
+.fx-cell.empty { display: grid; place-items: center; min-height: 70px; font-size: 11.5px; color: var(--dim); }
+.fx-img { grid-area: img; width: 26px; height: 26px; margin-bottom: 2px; border-radius: 50%; object-fit: cover; background: var(--card-2); }
+.fx-img.logo { object-fit: contain; background: none; }
+.fx-name { grid-area: name; min-width: 0; font-size: 12.5px; font-weight: 750; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.fx-name a { color: var(--text); text-decoration: none; }
+.fx-meta { grid-area: meta; min-width: 0; font-size: 10.5px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.fx-inj { font-size: 9.5px; font-weight: 800; color: var(--amber); }
+.fx-inj.out { color: var(--red); }
+.fx-pts { grid-area: pts; font-size: 15px; font-weight: 800; line-height: 1.15; font-variant-numeric: tabular-nums; }
+.fx-pts.none { color: var(--dim); }
+.fx-proj { grid-area: proj; font-size: 10.5px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.fx-bar { grid-area: bar; display: block; height: 3px; margin: 5px 0 4px; border-radius: 2px; overflow: hidden; background: var(--line); }
+.fx-bar b { display: block; height: 100%; background: var(--accent); }
+.fx-cell.post .fx-bar b { background: var(--dim); }
+.fx-game, .fx-stat { min-width: 0; font-size: 10.5px; line-height: 1.4; font-variant-numeric: tabular-nums; }
+.fx-game { grid-area: game; color: var(--muted); }
+.fx-game > span { white-space: nowrap; }   /* wraps only between "Sun 1:00 PM @ BUF" and "65°" */
+/* A big day's line wraps rather than losing its end. */
+.fx-stat { grid-area: stat; color: var(--text); overflow-wrap: anywhere; }
+.fx-stat.dim { color: var(--dim); }
+.fx-game .live-dot, .fx-chip-name .live-dot { display: inline-block; margin-right: 4px; vertical-align: 1px; }
+.fx-cell.up .fx-pts { animation: fx-up 1.8s ease-out; }
+@keyframes fx-up { 0% { color: var(--green); } 100% { color: var(--text); } }
+.fx-cell.up { animation: fx-glow 1.8s ease-out; }
+@keyframes fx-glow { 0% { border-color: var(--green-dim); } 100% { border-color: var(--line); } }
+
+/* Under 360px the headshots step aside for the names, the team abbreviation
+   goes once a game is on (its game line names the team), and the rest
+   tightens a notch so the second line still fits. */
+@media (max-width: 359px) {
+  .fx-chips { gap: 4px; }
+  .fx-chip { padding: 6px 6px; }
+  .fx-chip-score { font-size: 11px; }
+  .fx-row { grid-template-columns: minmax(0, 1fr) 26px minmax(0, 1fr); gap: 4px; }
+  .fx-slot { width: 26px; height: 26px; font-size: 8.5px; }
+  .fx-cell { padding: 6px 6px 5px; column-gap: 4px; }
+  .fx-img { display: none; }
+  .fx-cell.l { grid-template-columns: minmax(0, 1fr) auto auto; grid-template-areas: "name name name" "meta proj pts" "bar bar bar" "game game game" "stat stat stat"; }
+  .fx-cell.r { grid-template-columns: auto auto minmax(0, 1fr); grid-template-areas: "name name name" "pts proj meta" "bar bar bar" "game game game" "stat stat stat"; }
+  .fx-cell.in .fx-tm, .fx-cell.post .fx-tm { display: none; }
+  .fx-pts { font-size: 14px; }
+  .fx-proj, .fx-meta { font-size: 10px; }
+}

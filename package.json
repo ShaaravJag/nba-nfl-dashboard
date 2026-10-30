@@ -5,6 +5,6 @@
   "type": "module",
   "scripts": {
     "dev": "node scripts/dev-server.mjs",
-    "test": "node scripts/test-markets.mjs && node scripts/test-live-path.mjs && node scripts/test-box.mjs && node scripts/test-feed.mjs"
+    "test": "node scripts/test-markets.mjs && node scripts/test-live-path.mjs && node scripts/test-box.mjs && node scripts/test-feed.mjs && node scripts/test-fantasy.mjs"
   }
 }

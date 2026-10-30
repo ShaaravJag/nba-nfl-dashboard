@@ -140,11 +140,19 @@ function byDay(games) {
   return [...days];
 }
 
+/** The sport switch, plus Scores / Fantasy under NFL. */
+export function gamesTopHtml(sport, view = 'scores') {
+  const sportSeg = `<div class="seg">${['nba', 'nfl'].map((s) =>
+    `<button class="${s === sport ? 'on' : ''}" data-sport="${s}">${s.toUpperCase()}</button>`).join('')}</div>`;
+  if (sport !== 'nfl') return sportSeg;
+  return `${sportSeg}<div class="seg sub">${[['scores', 'Scores', 'games'], ['fantasy', 'Fantasy', 'fantasy']].map(([v, label, tab]) =>
+    `<button class="${v === view ? 'on' : ''}" data-goto="${tab}">${label}</button>`).join('')}</div>`;
+}
+
 export function scoreboardHtml(scores, { legCounts, pins = {} }) {
   const ctx = { legCounts, pins };
   const { sport, data } = scores;
-  const sportSeg = `<div class="seg">${['nba', 'nfl'].map((s) =>
-    `<button class="${s === sport ? 'on' : ''}" data-sport="${s}">${s.toUpperCase()}</button>`).join('')}</div>`;
+  const sportSeg = gamesTopHtml(sport);
   const nav = sport === 'nfl' ? weekNavHtml(scores.week, scores.weekMeta) : dayStripHtml(scores.today, scores.date);
 
   let body;

@@ -38,6 +38,15 @@ needs. The alerts are information only; settlement never reads them. A player wh
 actually doesn't play is different: that leg is voided and the parlay re-priced
 (see Known limits).
 
+**Fantasy** sits under NFL on the Games tab: your matchup in Luh Speds and PSK
+(ESPN) and Gentelman (Sleeper), laid out like Sleeper's matchup screen -- team
+cards, win probability, who's yet to play, then each lineup slot side by side
+with points, projection, the game and the stat line, and the bench below.
+Points come from each platform's own scoring: ESPN's fantasy API is uncached, and
+Sleeper's are worked out from its live stats feed (cached 4s) with the league's
+scoring settings, which reproduces Sleeper's own numbers exactly. A live matchup
+refreshes every 5s.
+
 ## Layout
 
 | Path | What it does |
@@ -54,6 +63,8 @@ actually doesn't play is different: that leg is voided and the parlay re-priced
 | `api/box.js` | One game's full box score, in ESPN's own columns, plus its feed. |
 | `api/_feed.js` | Replays the play-by-play into the feed's running lines and details. |
 | `api/slate.js` | Today's games plus a searchable player index. |
+| `api/fantasy.js`, `api/_fantasy.js` | Your three fantasy matchups, behind the fantasy key. |
+| `public/fantasy.js` | HTML for the Fantasy view. |
 
 ## Running locally
 
@@ -98,6 +109,21 @@ gh api repos/ShaaravJag/bet-tracker/commits/HEAD --jq '.author.login'
 `null` means the deployment will be blocked. If a deployment does get blocked, it
 can still be shipped through the API, which is authenticated as the account rather
 than the commit author.
+
+### Fantasy setup
+
+The site is public, so the Fantasy view is locked. Three environment variables in
+Vercel (Settings → Environment Variables), then a redeploy:
+
+| Variable | What it is |
+|---|---|
+| `FANTASY_KEY` | Any passphrase. Enter the same one under Settings → Fantasy on each device. |
+| `ESPN_S2`, `ESPN_SWID` | The ESPN login cookies for the two private ESPN leagues (see the Fantasy project's `README-CREDENTIALS.md`). |
+
+`/api/fantasy` answers 401 without the key and is never cached at the edge. For
+`npm run dev`, put the same three lines in a gitignored `.env.local`. With the
+ESPN cookies in the environment, `npm test` also checks the ESPN leagues' stat lines
+against ESPN's box scores.
 
 ## Known limits
 

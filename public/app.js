@@ -6,10 +6,12 @@ import { createSync } from './sync.js';
 import { IMPORT_PROMPT } from './import-prompt.js';
 import { scoreboardHtml, boxScoreHtml, otherGamesHtml, MARKET_COLUMNS } from './scores.js';
 import { feedHtml, latestPlayHtml, legMarkers } from './feed.js';
+import { fantasyHtml } from './fantasy.js';
 
 const BETS_KEY = 'bt.bets.v2';
 const PREFS_KEY = 'bt.prefs.v1';
 const PINS_KEY = 'bt.pins.v1';
+const FX_KEY = 'bt.fantasyKey';   // unlocks /api/fantasy; per device, never synced
 const PIN_DAYS = 3;          // pinned games drop off after this, so finished ones don't pile up
 const BOOKS = ['FanDuel', 'DraftKings', 'BetMGM', 'Caesars', 'ESPN BET', 'Fanatics', 'Other'];
 
@@ -37,7 +39,9 @@ const state = {
   picker: newPicker(),
   scores: newScores(prefs.scoresSport),
   box: null,          // { sport, id, data, side, from, pushed, scrollTop, error }: the last box score opened
-  gamesView: 'list',  // what the Games tab shows when you come back to it: 'list' or 'game'
+  gamesView: 'list',  // what the Games tab shows when you come back to it: 'list', 'game' or 'fantasy'
+  // Fantasy matchups. prev holds each player's last points, so a rise flashes.
+  fx: { data: null, status: null, message: '', week: null, bench: false, prev: new Map() },
 };
 
 function load(key, fallback) {
@@ -201,6 +205,38 @@ async function loadBoxScore() {
   if (state.tab === 'game' && state.box?.id === id) renderBox();
 }
 
+function fantasyKey() {
+  try { return localStorage.getItem(FX_KEY) || ''; } catch { return ''; }
+}
+
+async function loadFantasy() {
+  const fx = state.fx;
+  const key = fantasyKey();
+  if (!key) {
+    Object.assign(fx, { status: 'key', message: '' });
+    if (state.tab === 'fantasy') renderFantasy();
+    return;
+  }
+  const week = fx.week;
+  try {
+    const res = await fetch(`/api/fantasy${week ? `?week=${week}` : ''}`, { headers: { 'x-fantasy-key': key }, cache: 'no-store' });
+    if (week !== fx.week) return;                    // picked another week meanwhile
+    if (res.status === 401) Object.assign(fx, { status: 'key', message: "That key didn't work.", data: null });
+    else if (res.status === 503) Object.assign(fx, { status: 'setup', data: null });
+    else if (!res.ok) throw new Error(`fantasy ${res.status}`);
+    else {
+      const data = await res.json();
+      if (week !== fx.week) return;
+      Object.assign(fx, { data, status: null, message: '' });
+      if (!fx.week) fx.week = data.week;
+    }
+  } catch (err) {
+    console.warn('fantasy failed', err);
+    if (!fx.data) Object.assign(fx, { status: 'error', message: 'Check your connection and try again.' });
+  }
+  if (state.tab === 'fantasy') renderFantasy();
+}
+
 // The Games tab and an open box score poll on their own timer, separate from
 // the bet loop, and only while you are looking at them.
 let viewTimer = null;
@@ -208,6 +244,12 @@ let viewTimer = null;
 function viewDelay() {
   if (document.hidden) return null;
   if (state.tab === 'games') return state.scores.data?.games?.some((g) => g.state === 'in') ? 10000 : 60000;
+  // Sleeper's live stats refresh every 4s and ESPN's fantasy API isn't cached,
+  // so a live matchup keeps pace with their own apps.
+  if (state.tab === 'fantasy') {
+    if (state.fx.status === 'key' || state.fx.status === 'setup') return null;
+    return state.fx.data?.live ? 5000 : 60000;
+  }
   if (state.tab === 'game') {
     const s = state.box?.data?.state;
     if (s === 'in') return 5000;
@@ -220,6 +262,7 @@ function viewDelay() {
 async function refreshView() {
   if (state.tab === 'games') await loadScores();
   else if (state.tab === 'game') await Promise.all([loadBoxScore(), loadStrip()]);
+  else if (state.tab === 'fantasy') await loadFantasy();
 }
 
 // The strip above a box score shows the Games tab's slate. Opened from a bet
@@ -245,7 +288,7 @@ function scheduleView() {
 // Entering a view fetches straight away, then settles into its own cadence.
 function startView() {
   clearTimeout(viewTimer);
-  if (state.tab === 'games' || state.tab === 'game') refreshView().then(scheduleView);
+  if (['games', 'game', 'fantasy'].includes(state.tab)) refreshView().then(scheduleView);
 }
 
 function openLegCounts() {
@@ -327,11 +370,13 @@ function beep(up) {
 
 function render() {
   $('#view').classList.toggle('wide', state.tab === 'game' && wideMQ.matches);
-  const tab = state.tab === 'game' ? 'games' : state.tab;   // a box score lives under Games
+  // A box score and the fantasy view live under Games.
+  const tab = state.tab === 'game' || state.tab === 'fantasy' ? 'games' : state.tab;
   document.querySelectorAll('.tab').forEach((t) => t.classList.toggle('active', t.dataset.tab === tab));
   if (state.tab === 'live') renderLive();
   else if (state.tab === 'games') renderGames();
   else if (state.tab === 'game') renderBox();
+  else if (state.tab === 'fantasy') renderFantasy();
   else if (state.tab === 'add') renderAdd();
   else if (state.tab === 'history') renderHistory();
   else if (state.tab === 'settings') renderSettings();
@@ -515,6 +560,26 @@ function renderGames() {
   const view = $('#view');
   const top = view.scrollTop;
   view.innerHTML = scoreboardHtml(state.scores, { legCounts: openLegCounts(), pins: state.pins });
+  view.scrollTop = top;
+}
+
+function renderFantasy() {
+  const view = $('#view');
+  const top = view.scrollTop;
+  const fx = state.fx;
+  // A player whose points went up since the last fetch flashes once.
+  const up = new Set();
+  for (const l of fx.data?.leagues || []) {
+    for (const r of [...(l.rows || []), ...(l.bench || []), ...(l.ir || [])]) {
+      for (const p of [r.a, r.b]) {
+        if (!p || p.pts == null) continue;
+        const key = `${l.key}:${p.id}`;
+        if (fx.prev.has(key) && p.pts > fx.prev.get(key)) up.add(key);
+        fx.prev.set(key, p.pts);
+      }
+    }
+  }
+  view.innerHTML = fantasyHtml(fx, { league: state.prefs.fxLeague, up });
   view.scrollTop = top;
 }
 
@@ -784,6 +849,15 @@ function renderSettings() {
       ` : `<div class="note">Sync is not configured. Bets are stored on this device only.</div>`}
     </div>
     <div class="panel">
+      <h3>Fantasy</h3>
+      <div class="note">The key that unlocks your fantasy leagues (FANTASY_KEY in Vercel). It stays on this device and isn't synced. ${fantasyKey() ? 'A key is saved.' : 'No key saved yet.'}</div>
+      <div class="row" style="margin-top:10px">
+        <input id="in-fx-key" type="password" autocomplete="off" placeholder="${fantasyKey() ? 'Replace the saved key' : 'Fantasy key'}">
+        <button class="btn sm" id="btn-fx-key" style="flex:none">Save</button>
+      </div>
+      ${fantasyKey() ? '<div class="row" style="margin-top:8px"><button class="btn ghost sm" id="btn-fx-forget" style="flex:none">Forget key</button></div>' : ''}
+    </div>
+    <div class="panel">
       <h3>Preferences</h3>
       <label style="display:flex;align-items:center;gap:9px;font-size:14px;color:var(--text)">
         <input type="checkbox" id="in-sound" style="width:auto" ${state.prefs.sound ? 'checked' : ''}> Sound when a leg hits or busts
@@ -886,7 +960,7 @@ function toast(msg) {
   node._t = setTimeout(() => node.classList.remove('show'), 2600);
 }
 
-const TABS = ['live', 'games', 'add', 'history', 'settings'];
+const TABS = ['live', 'games', 'fantasy', 'add', 'history', 'settings'];
 const FEED_STEP = 80;     // plays per page of the feed
 
 // A new game opens on the kind of tab you used last: the feed (REAL's default)
@@ -905,9 +979,21 @@ function go(tab) {
     state.box.pushed = false;
   }
   state.tab = tab;
+  if (tab === 'games') state.gamesView = 'list';
+  if (tab === 'fantasy') enterFantasy();
   history.replaceState(null, '', `#${tab}`);
   render();
   startView();
+}
+
+// Fantasy sits under NFL, so the Scores switch above it goes back to NFL scores.
+function enterFantasy() {
+  state.gamesView = 'fantasy';
+  if (state.scores.sport !== 'nfl') {
+    state.scores = newScores('nfl');
+    state.prefs.scoresSport = 'nfl';
+    persist({ push: false });
+  }
 }
 
 // The tab bar keeps your place: Games reopens the box score you left it on.
@@ -920,7 +1006,9 @@ function tapTab(tab) {
     if (state.box?.pushed && state.box.from === 'games') return history.back();
     return go('games');
   }
+  if (state.tab === 'fantasy') return go('games');
   if (state.gamesView === 'game' && state.box) return resumeBox();
+  if (state.gamesView === 'fantasy') return go('fantasy');
   return go('games');
 }
 
@@ -978,6 +1066,7 @@ function route() {
     state.tab = TABS.includes(tab) ? tab : 'live';
     // The browser's back button away from a box score closes it, like Back.
     if (wasBox || state.tab === 'games') state.gamesView = 'list';
+    if (state.tab === 'fantasy') enterFantasy();
   }
   // Reached by a reload or the browser's back/forward: what sits behind this
   // entry is unknown, so Back switches views rather than popping history.
@@ -1037,12 +1126,28 @@ document.addEventListener('click', async (ev) => {
     return;
   }
   if (t.dataset.sport) {
-    if (t.dataset.sport !== state.scores.sport) {
+    const changed = t.dataset.sport !== state.scores.sport;
+    if (changed) {
       state.scores = newScores(t.dataset.sport);
       state.prefs.scoresSport = t.dataset.sport;
       persist({ push: false });
-      renderGames(); startView();
     }
+    if (state.tab !== 'games') { if (changed) go('games'); return; }
+    if (changed) { renderGames(); startView(); }
+    return;
+  }
+  if (t.dataset.fxLeague) {
+    state.prefs.fxLeague = t.dataset.fxLeague;
+    persist({ push: false });
+    renderFantasy();
+    return;
+  }
+  if (t.dataset.fxBench !== undefined) { state.fx.bench = !state.fx.bench; renderFantasy(); return; }
+  if (t.id === 'btn-fx-key') return saveFantasyKey();
+  if (t.id === 'btn-fx-forget') {
+    try { localStorage.removeItem(FX_KEY); } catch { /* private mode */ }
+    Object.assign(state.fx, { data: null, status: null, message: '' });
+    renderSettings(); toast('Fantasy key removed');
     return;
   }
   if (t.dataset.day) {
@@ -1112,6 +1217,14 @@ document.addEventListener('click', async (ev) => {
     return;
   }
 });
+
+function saveFantasyKey() {
+  const key = $('#in-fx-key')?.value.trim();
+  if (!key) return toast('Enter the key first');
+  try { localStorage.setItem(FX_KEY, key); } catch { return toast("This browser won't store the key"); }
+  Object.assign(state.fx, { data: null, status: null, message: '' });
+  if (state.tab === 'fantasy') { renderFantasy(); startView(); } else { renderSettings(); toast('Fantasy key saved'); }
+}
 
 function captureLegInputs() {
   const line = $('#in-line'); const side = $('#in-side'); const odds = $('#in-odds');
@@ -1195,6 +1308,17 @@ function doImport() {
 document.addEventListener('input', (ev) => {
   if (ev.target.id === 'in-search') { state.picker.query = ev.target.value; renderPickerResults(); }
   if (ev.target.id === 'in-sound') { state.prefs.sound = ev.target.checked; persist({ push: false }); }
+});
+
+document.addEventListener('change', (ev) => {
+  if (ev.target.id === 'fx-week') {
+    Object.assign(state.fx, { week: Number(ev.target.value), data: null, prev: new Map() });
+    renderFantasy(); startView();
+  }
+});
+
+document.addEventListener('keydown', (ev) => {
+  if (ev.key === 'Enter' && ev.target.id === 'in-fx-key') saveFantasyKey();
 });
 
 document.addEventListener('visibilitychange', () => {
