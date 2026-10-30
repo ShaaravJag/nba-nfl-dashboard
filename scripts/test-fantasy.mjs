@@ -175,7 +175,7 @@ const none = await call();
 check('no key: 401 and no league data', [none.code, none.body.leagues], [401, undefined]);
 check('a wrong key: 401', (await call({ 'x-fantasy-key': 'nope' })).code, 401);
 const ok = await call({ 'x-fantasy-key': 'test-key-for-checks' });
-check('the right key: all three leagues', [ok.code, ok.body.leagues?.map((l) => l.key)], [200, ['luh_speds', 'psk', 'gentelman']]);
+check('the right key: all three leagues', [ok.code, ok.body.leagues?.map((l) => l.key)], [200, ['gentelman', 'luh_speds', 'psk']]);
 check('...never cached at the edge', ok.headers['cache-control'], 'private, no-store');
 if (saved) process.env.FANTASY_KEY = saved; else delete process.env.FANTASY_KEY;
 

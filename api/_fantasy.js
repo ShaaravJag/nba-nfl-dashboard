@@ -8,9 +8,9 @@ import { minutesRemaining } from '../public/markets.js';
 // Not secret -- the ids are in every league URL. The ESPN login is: it lives in
 // the ESPN_S2 / ESPN_SWID env vars and never leaves the server.
 export const LEAGUES = [
+  { key: 'gentelman', name: 'Gentelman', platform: 'sleeper', leagueId: '1389371871832604672', userId: '1265879797083422720' },
   { key: 'luh_speds', name: 'Luh Speds', platform: 'espn', leagueId: '582872245', teamId: 4 },
   { key: 'psk', name: 'PSK', platform: 'espn', leagueId: '86645631', teamId: 12 },
-  { key: 'gentelman', name: 'Gentelman', platform: 'sleeper', leagueId: '1389371871832604672', userId: '1265879797083422720' },
 ];
 
 const SLEEPER = 'https://api.sleeper.app/v1';
