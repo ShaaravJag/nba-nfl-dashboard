@@ -247,6 +247,7 @@ export function normalizeGame(sport, summary) {
     sport,
     state,
     completed: !!type.completed,
+    start: comp.date || null,
     statusDetail: type.shortDetail || type.detail || type.description || '',
     period: toNum(status.period),
     clock: status.displayClock || '',

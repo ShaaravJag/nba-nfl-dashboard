@@ -63,7 +63,7 @@ function teamHtml(t, side, d) {
   return `<div class="fx-team ${side}">
     ${av}
     <div class="fx-who"><div class="fx-owner">${esc(t.owner)}</div><div class="fx-tname">${esc(t.name)}</div></div>
-    <div class="fx-score">${num(t.score, d)}</div>
+    <div class="fx-score" data-k="fx:${esc(side)}:${esc(t.name)}">${num(t.score, d)}</div>
     <div class="fx-sub">${esc(t.record)} · proj ${num(t.proj, d)}</div>
   </div>`;
 }
@@ -133,7 +133,7 @@ export function fantasyHtml(fx, ctx = {}) {
   if (!data) {
     return top + (fx.status === 'error'
       ? `<div class="empty"><div>Couldn't load your leagues.</div><div class="note">${esc(fx.message || 'Check your connection and try again.')}</div></div>`
-      : '<div class="empty"><div class="note">Loading your matchups…</div></div>');
+      : `<div class="skel-fx" aria-label="Loading your matchups"><div class="skel"></div><div></div><div class="skel"></div></div>${'<div class="skel-fx"><div class="skel"></div><span class="skel round" style="width:30px;height:30px;align-self:center"></span><div class="skel"></div></div>'.repeat(6)}`);
   }
   const l = data.leagues.find((x) => x.key === ctx.league) || data.leagues.find((x) => !x.error) || data.leagues[0];
   const sec = (label) => `<div class="fx-sec"><span>${label}</span>${weekPickHtml(data)}</div>`;

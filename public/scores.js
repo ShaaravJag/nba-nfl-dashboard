@@ -2,6 +2,8 @@
 // they are handed -- app.js owns fetching, polling and state, the same split
 // markets.js has for settlement.
 
+import { icon } from './ui.js';
+
 const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 
 // Which box-score cells a bet rides on, so the view can outline them. NBA
@@ -77,7 +79,7 @@ function tileHtml(g, legs, pinned) {
   const final = g.state === 'post';
   const side = (s) => {
     const ball = g.possession && g.possession === s.id ? '<span class="ball" title="Has the ball"></span>' : '';
-    const num = pre ? `<span class="gt-rec">${esc(s.record)}</span>` : `<span class="gt-score">${s.score}</span>`;
+    const num = pre ? `<span class="gt-rec">${esc(s.record)}</span>` : `<span class="gt-score" data-k="gt:${esc(g.id)}:${esc(s.id)}">${s.score}</span>`;
     const logo = s.logo ? `<img src="${esc(s.logo)}" alt="" loading="lazy">` : '<span class="gt-logo"></span>';
     return `<div class="gt-side${final && !s.winner ? ' lose' : ''}">${logo}
       <div class="gt-num">${num}${ball}<div class="gt-name">${esc(s.short || s.abbr)}</div></div></div>`;
@@ -88,7 +90,7 @@ function tileHtml(g, legs, pinned) {
   if (pre && oddsText(g.odds).length) foot.push(`<span class="gt-odds">${oddsText(g.odds).map(esc).join(' &middot; ')}</span>`);
   if (legs) foot.push(`<span class="gt-bets">${legs} leg${legs === 1 ? '' : 's'}</span>`);
   // Pinning lives inside the tile but must not open the game (see app.js).
-  foot.push(`<span class="gt-pin${pinned ? ' on' : ''}" role="button" data-pin="${esc(pinKey(g))}" aria-label="${pinned ? 'Unpin' : 'Pin'} game">${pinned ? '&#9733;' : '&#9734;'}</span>`);
+  foot.push(`<span class="gt-pin${pinned ? ' on' : ''}" role="button" data-pin="${esc(pinKey(g))}" aria-label="${pinned ? 'Unpin' : 'Pin'} game">${icon('star', pinned ? 'fill' : '')}</span>`);
   const clock = g.state === 'in' ? `<span class="live-dot"></span>${esc(statusText(g))}` : esc(statusText(g));
   return `<button class="gtile ${esc(g.state)}${legs ? ' tracked' : ''}${pinned ? ' pinned' : ''}${g.redZone ? ' redzone' : ''}" data-open-game="${esc(g.sport)}:${esc(g.id)}">
     <div class="gt-clock">${clock}</div>
@@ -121,12 +123,12 @@ function weekNavHtml(number, meta) {
   const known = meta && meta.number === number;
   const first = meta?.first ?? 1;
   const last = meta?.last ?? 18;
-  const arrow = (to, glyph, label) => (to >= first && to <= last
-    ? `<button class="icon-btn" data-week="${to}" aria-label="${label}">${glyph}</button>`
+  const arrow = (to, name, label) => (to >= first && to <= last
+    ? `<button class="icon-btn" data-week="${to}" aria-label="${label}">${icon(name)}</button>`
     : '<span class="icon-btn" style="visibility:hidden"></span>');
-  return `<div class="week-nav">${arrow(number - 1, '&#8249;', 'Previous week')}
+  return `<div class="week-nav">${arrow(number - 1, 'left', 'Previous week')}
     <div class="wk"><b>${esc(known ? meta.label : `Week ${number}`)}</b><span>${esc(known ? meta.detail : '')}</span></div>
-    ${arrow(number + 1, '&#8250;', 'Next week')}</div>`;
+    ${arrow(number + 1, 'right', 'Next week')}</div>`;
 }
 
 // NFL weeks read best split by day: Thursday night, Sunday, Monday night.
@@ -138,6 +140,13 @@ function byDay(games) {
     days.get(label).push(g);
   }
   return [...days];
+}
+
+// Placeholder tiles shaped like the real ones while the slate loads.
+function skeletonGrid() {
+  const side = '<div class="skel-row"><span class="skel round" style="width:26px;height:26px"></span><span class="skel" style="width:48%;height:14px"></span></div>';
+  const tile = `<div class="skel-tile">${side}${side}<span class="skel" style="width:60%;height:8px"></span></div>`;
+  return `<div class="games-grid" aria-label="Loading games">${tile.repeat(6)}</div>`;
 }
 
 /** The sport switch, plus Scores / Fantasy under NFL. */
@@ -159,7 +168,7 @@ export function scoreboardHtml(scores, { legCounts, pins = {} }) {
   if (!data) {
     body = scores.error
       ? `<div class="empty"><div>Couldn't load scores.</div><div class="note">${esc(scores.error)}</div></div>`
-      : '<div class="empty"><div class="note">Loading games…</div></div>';
+      : skeletonGrid();
   } else if (!data.games.length) {
     body = `<div class="empty"><div>No ${sport.toUpperCase()} games ${sport === 'nfl' ? 'this week' : 'on this day'}.</div></div>`;
   } else if (sport === 'nfl') {
@@ -177,7 +186,7 @@ function boxHeaderHtml(b) {
   const team = (s) => `<div class="bh-team${final && !s.winner ? ' lose' : ''}">
       ${s.logo ? `<img src="${esc(s.logo)}" alt="">` : ''}
       <div class="bh-abbr">${esc(s.abbr)}</div><div class="bh-rec">${esc(s.record)}</div></div>`;
-  const score = (s) => `<div class="bh-score${final && !s.winner ? ' lose' : ''}">${b.state === 'pre' ? '' : s.score}</div>`;
+  const score = (s) => `<div class="bh-score${final && !s.winner ? ' lose' : ''}"><span data-k="bh:${esc(s.abbr)}">${b.state === 'pre' ? '' : s.score}</span></div>`;
   const live = b.state === 'in';
   return `<div class="box-head">
     ${team(b.away)}${score(b.away)}
@@ -324,9 +333,14 @@ export function otherGamesHtml(games, currentId, ctx = {}) {
 }
 
 export function boxScoreHtml(b, { side, tracked, error, from, wide = false, feedPanel = '', strip = '', gameStrip = '' }) {
-  const back = `${gameStrip}<button class="back-btn" data-back>&#8249; ${from === 'live' ? 'Bets' : 'Games'}</button>`;
+  const back = `${gameStrip}<button class="back-btn" data-back>${icon('left')}${from === 'live' ? 'Bets' : 'Games'}</button>`;
   if (!b) {
-    return `${back}<div class="empty"><div class="note">${esc(error || 'Loading box score…')}</div></div>`;
+    if (error) return `${back}<div class="empty"><div class="note">${esc(error)}</div></div>`;
+    const line = (w) => `<span class="skel" style="width:${w}%"></span>`;
+    return `${back}<div class="skel-box" aria-label="Loading box score">
+      <div class="skel-row" style="justify-content:space-between"><span class="skel round" style="width:40px;height:40px"></span><span class="skel" style="width:30%;height:22px"></span><span class="skel round" style="width:40px;height:40px"></span></div>
+      ${line(100)}${line(100)}</div>
+      <div class="skel-box">${[92, 84, 88, 76, 90, 70].map(line).join('')}</div>`;
   }
   const parts = [back, boxHeaderHtml(b)];
   if (b.state !== 'pre') parts.push(linescoreHtml(b));

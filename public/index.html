@@ -15,14 +15,27 @@
 <link rel="stylesheet" href="/styles.css" />
 </head>
 <body>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <symbol id="i-live" viewBox="0 0 24 24"><path d="M3 12h4l3-8 4 16 3-8h4"/></symbol>
+  <symbol id="i-games" viewBox="0 0 24 24"><rect x="3.5" y="3.5" width="7" height="7" rx="1.5"/><rect x="13.5" y="3.5" width="7" height="7" rx="1.5"/><rect x="3.5" y="13.5" width="7" height="7" rx="1.5"/><rect x="13.5" y="13.5" width="7" height="7" rx="1.5"/></symbol>
+  <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+  <symbol id="i-history" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></symbol>
+  <symbol id="i-refresh" viewBox="0 0 24 24"><path d="M21 12a9 9 0 1 1-2.64-6.36L21 8"/><path d="M21 3v5h-5"/></symbol>
+  <symbol id="i-settings" viewBox="0 0 24 24"><path d="M4 6h9M17 6h3M4 12h3M11 12h9M4 18h11M19 18h1"/><circle cx="15" cy="6" r="2"/><circle cx="9" cy="12" r="2"/><circle cx="17" cy="18" r="2"/></symbol>
+  <symbol id="i-x" viewBox="0 0 24 24"><path d="M18 6 6 18M6 6l12 12"/></symbol>
+  <symbol id="i-down" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></symbol>
+  <symbol id="i-left" viewBox="0 0 24 24"><path d="m15 18-6-6 6-6"/></symbol>
+  <symbol id="i-right" viewBox="0 0 24 24"><path d="m9 18 6-6-6-6"/></symbol>
+  <symbol id="i-star" viewBox="0 0 24 24"><path d="m12 3 2.8 5.7 6.2.9-4.5 4.4 1.1 6.2L12 17.3l-5.6 2.9 1.1-6.2L3 9.6l6.2-.9z"/></symbol>
+</svg>
 
 <header class="topbar">
   <div class="wrap topbar-in">
     <span class="brand">Bet Tracker</span>
-    <span class="pulse"><span class="dot" id="pulse-dot"></span><span id="pulse-text">idle</span></span>
+    <span class="pulse"><span class="dot" id="pulse-dot"></span><span id="pulse-text"></span></span>
     <span class="spacer"></span>
-    <button class="icon-btn" id="btn-refresh" title="Refresh now">&#8635;</button>
-    <button class="icon-btn" id="btn-settings" title="Sync &amp; settings">&#9881;</button>
+    <button class="icon-btn" id="btn-refresh" title="Refresh now" aria-label="Refresh now"><svg class="i"><use href="#i-refresh"/></svg></button>
+    <button class="icon-btn" id="btn-settings" title="Sync &amp; settings" aria-label="Settings"><svg class="i"><use href="#i-settings"/></svg></button>
   </div>
 </header>
 
@@ -30,10 +43,10 @@
 
 <nav class="tabbar">
   <div class="tabbar-in">
-    <button class="tab active" data-tab="live"><span class="ic">&#9679;</span>Live</button>
-    <button class="tab" data-tab="games"><span class="ic">&#9638;</span>Games</button>
-    <button class="tab" data-tab="add"><span class="ic">&#43;</span>Add Bet</button>
-    <button class="tab" data-tab="history"><span class="ic">&#9776;</span>History</button>
+    <button class="tab active" data-tab="live"><svg class="i"><use href="#i-live"/></svg>Live</button>
+    <button class="tab" data-tab="games"><svg class="i"><use href="#i-games"/></svg>Games</button>
+    <button class="tab add" data-tab="add"><svg class="i"><use href="#i-plus"/></svg>Add bet</button>
+    <button class="tab" data-tab="history"><svg class="i"><use href="#i-history"/></svg>History</button>
   </div>
 </nav>
 

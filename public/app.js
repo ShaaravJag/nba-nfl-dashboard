@@ -7,6 +7,7 @@ import { IMPORT_PROMPT } from './import-prompt.js';
 import { scoreboardHtml, boxScoreHtml, otherGamesHtml, MARKET_COLUMNS } from './scores.js';
 import { feedHtml, latestPlayHtml, legMarkers } from './feed.js';
 import { fantasyHtml } from './fantasy.js';
+import { icon, snapshot, animate, enter } from './ui.js';
 
 const BETS_KEY = 'bt.bets.v2';
 const PREFS_KEY = 'bt.prefs.v1';
@@ -116,7 +117,7 @@ async function poll() {
   for (const [sport, ids] of Object.entries(bySport)) {
     if (ids.size) params.set(sport, [...ids].sort().join(','));
   }
-  if (![...params.keys()].length) { setPulse(false, 'no open bets'); return; }
+  if (![...params.keys()].length) { setPulse(false, ''); return; }
 
   state.fetching = true;
   try {
@@ -402,17 +403,32 @@ function legSubtitle(leg, res) {
   return `${side} ${leg.line} ${esc(market.label.toUpperCase())}`;
 }
 
+// "7:00 PM" today, "Fri 7:00 PM" later this week.
+function tipoff(g) {
+  const d = new Date(g.start);
+  if (!g.start || Number.isNaN(d.getTime())) return g.statusDetail || '';
+  const time = d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+  return d.toDateString() === new Date().toDateString()
+    ? time : `${d.toLocaleDateString([], { weekday: 'short' })} ${time}`;
+}
+
 function gameStripHtml(g, leg) {
-  if (!g) return `<div class="gamestrip"><span class="badge-final">--</span><span>Waiting for data</span></div>`;
+  if (!g) {
+    // Before the first fetch lands this is loading, not missing.
+    return leg.eventId && !state.lastFetch
+      ? '<div class="gamestrip"><span class="skel" style="width:46%"></span></div>'
+      : '<div class="gamestrip"><span>Waiting for game data</span></div>';
+  }
+  // Before tip-off the start time says "not yet" on its own.
   const badge = g.state === 'in' ? '<span class="badge-live">LIVE</span>'
-    : g.state === 'post' ? '<span class="badge-final">FINAL</span>'
-    : '<span class="badge-final">SOON</span>';
-  // statusDetail is the clock mid-game and tip-off time before it, but just
-  // repeats the badge once the game is over.
-  const when = g.state === 'post' ? '' : `<span>${esc(g.statusDetail)}</span><span class="sep">&middot;</span>`;
+    : g.state === 'post' ? '<span class="badge-final">FINAL</span>' : '';
+  // statusDetail is the clock mid-game, but just repeats the badge once the
+  // game is over.
+  const when = g.state === 'post' ? ''
+    : `<span>${esc(g.state === 'pre' ? tipoff(g) : g.statusDetail)}</span><span class="sep">&middot;</span>`;
   const odds = leg.americanOdds ? `<span class="odds">${formatOdds(leg.americanOdds)}</span>` : '';
   return `<div class="gamestrip" data-open-game="${esc(leg.sport)}:${esc(leg.eventId)}">${badge}${when}` +
-    `<span>${esc(g.away.abbr)} @ ${esc(g.home.abbr)}</span>${odds}<span class="strip-go">&#8250;</span></div>`;
+    `<span>${esc(g.away.abbr)} @ ${esc(g.home.abbr)}</span>${odds}<span class="strip-go">${icon('right')}</span></div>`;
 }
 
 function teamsHtml(g) {
@@ -420,12 +436,12 @@ function teamsHtml(g) {
   const row = (side) => {
     const ball = g.possession && g.possession === side.id ? ' has-ball' : '';
     const logo = side.logo ? `<img src="${esc(side.logo)}" alt="${esc(side.abbr)}" loading="lazy">` : '<span style="width:19px"></span>';
-    return `<div class="team-row${ball}">${logo}<span class="sc">${side.score}</span></div>`;
+    return `<div class="team-row${ball}">${logo}<span class="sc" data-k="sc:${g.id}:${side.id}">${side.score}</span></div>`;
   };
   return `<div class="teams">${row(g.away)}${row(g.home)}</div>`;
 }
 
-function barHtml(res) {
+function barHtml(res, id) {
   if (res.manual || res.margin || res.value == null) return '';
   const pct = Math.max(0, Math.min(100, res.progress * 100));
   const knob = Math.max(5, Math.min(95, pct));
@@ -433,8 +449,8 @@ function barHtml(res) {
   const target = res.side === 'over' ? res.target : res.line;
   return `<div class="bar">
     <div class="track">
-      <div class="fill" style="width:${pct}%"></div>
-      <div class="knob" style="left:${knob}%">${label}</div>
+      <div class="fill" data-w="fill:${id}" style="width:${pct}%"></div>
+      <div class="knob" data-w="knob:${id}" data-k="v:${id}" style="left:${knob}%">${label}</div>
     </div>
     <span class="target">${target}</span>
   </div>`;
@@ -490,7 +506,7 @@ function legHtml(leg, res) {
       <div>
         <div class="pname">${title}${dot}</div>
         <div class="pmarket"><span>${legSubtitle(leg, res)}</span>${meta}</div>
-        ${barHtml(res)}
+        ${barHtml(res, leg.id)}
       </div>
     </div>
     ${legFootHtml(leg, res, legAlerts(leg, g, res))}
@@ -507,11 +523,12 @@ function betHtml(bet) {
   const title = bet.legs.length > 1 ? `${bet.legs.length}-leg parlay` : 'Straight bet';
   const sub = [
     bet.stake && refund ? `${money(bet.stake)} stake back` : null,
-    bet.stake && !refund ? `${money(bet.stake)} to win ${money(price.payout != null ? price.payout - bet.stake : null)}` : null,
+    bet.stake && !refund ? `${money(bet.stake)} to win <b>${money(price.payout != null ? price.payout - bet.stake : null)}</b>` : null,
     odds && !refund ? formatOdds(odds) : null,
     price.repriced && !refund
       ? `<span class="repriced">${price.payout == null ? 're-price needs leg odds' : 're-priced'}</span>` : null,
   ].filter(Boolean).join('  ·  ');
+  const book = bet.book ? `<span class="book ${esc(bet.book.toLowerCase().replace(/\s/g, ''))}">${esc(bet.book)}</span>` : '';
 
   // Folded, a card keeps its header and a one-line count of where the legs stand.
   const folded = !!state.prefs.collapsed?.[bet.id];
@@ -525,12 +542,12 @@ function betHtml(bet) {
 
   return `<article class="bet ${status}${folded ? ' collapsed' : ''}" data-bet="${bet.id}">
     <div class="bet-head" data-collapse="${bet.id}">
-      <span class="book ${esc((bet.book || '').toLowerCase().replace(/\s/g, ''))}">${esc(bet.book || 'Bet')}</span>
+      ${book}
       <span class="bet-title">${title}</span>
-      ${folded && tally ? `<span class="bet-count">${tally}</span>` : ''}
+      ${tally ? `<span class="bet-count">${tally}</span>` : ''}
       <span class="spacer" style="flex:1"></span>
-      <button class="icon-btn fold" data-collapse="${bet.id}" title="${folded ? 'Show legs' : 'Hide legs'}">&#8964;</button>
-      <button class="icon-btn" data-del="${bet.id}" title="Delete bet">&times;</button>
+      <button class="icon-btn fold" data-collapse="${bet.id}" title="${folded ? 'Show legs' : 'Hide legs'}" aria-label="Fold">${icon('down')}</button>
+      <button class="icon-btn" data-del="${bet.id}" title="Delete bet" aria-label="Delete bet">${icon('x')}</button>
     </div>
     <div class="bet-meta">
       <span>${sub || ''}</span>
@@ -538,7 +555,7 @@ function betHtml(bet) {
       ${statusPill(status)}
     </div>
     ${bet.result ? '' : `<div class="sweat">${esc(sweatLine(bet, results))}</div>`}
-    ${bet.legs.map((leg, i) => legHtml(leg, results[i])).join('')}
+    <div class="bet-legs"><div class="bet-legs-in">${bet.legs.map((leg, i) => legHtml(leg, results[i])).join('')}</div></div>
   </article>`;
 }
 
@@ -555,26 +572,29 @@ function renderLive() {
   }, 0);
 
   if (!open.length) {
-    view.innerHTML = `<div class="empty"><div class="big">&#9898;</div>
-      <div>No open bets.</div>
-      <div class="note">Add a parlay manually, or paste one in from a screenshot.</div>
-      <div style="margin-top:16px"><button class="btn sm" data-goto="add">Add a bet</button></div></div>`;
+    view.innerHTML = `<div class="empty"><div class="title">No open bets</div>
+      <div class="note">Paste a parlay in from a bet-slip screenshot, or build one leg by leg.</div>
+      <button class="btn" data-goto="add">Add a bet</button></div>`;
     return;
   }
 
+  const snap = snapshot(view);
   view.innerHTML = `
     <div class="summary">
-      <div class="sum-card"><div class="k">Open</div><div class="v">${open.length}</div></div>
-      <div class="sum-card"><div class="k">At risk</div><div class="v">${money(atRisk)}</div></div>
-      <div class="sum-card"><div class="k">To win</div><div class="v pos">${money(toWin)}</div></div>
+      <div class="sum-card"><div class="k">Open</div><div class="v" data-k="sum:open">${open.length}</div></div>
+      <div class="sum-card"><div class="k">At risk</div><div class="v" data-k="sum:risk">${money(atRisk)}</div></div>
+      <div class="sum-card"><div class="k">To win</div><div class="v pos" data-k="sum:win">${money(toWin)}</div></div>
     </div>
     ${open.map(betHtml).join('')}`;
+  animate(view, snap);
 }
 
 function renderGames() {
   const view = $('#view');
   const top = view.scrollTop;
+  const snap = snapshot(view);
   view.innerHTML = scoreboardHtml(state.scores, { legCounts: openLegCounts(), pins: state.pins });
+  animate(view, snap);
   view.scrollTop = top;
 }
 
@@ -594,7 +614,9 @@ function renderFantasy() {
       }
     }
   }
+  const snap = snapshot(view);
   view.innerHTML = fantasyHtml(fx, { league: state.prefs.fxLeague, up });
+  animate(view, snap);
   view.scrollTop = top;
 }
 
@@ -650,6 +672,7 @@ function renderBox() {
     tracked: new Set(legs.map((l) => l.playerId).filter(Boolean)),
     fresh,
   }) : '';
+  const snap = snapshot(view);
   view.innerHTML = boxScoreHtml(data, {
     side: box.side || 'feed', tracked: trackedFor(box.id), error: box.error, from: box.from,
     wide, feedPanel, strip: data ? latestPlayHtml(data) : '',
@@ -657,6 +680,7 @@ function renderBox() {
       ? otherGamesHtml(state.scores.data?.games, box.id, { pins: state.pins, legCounts: openLegCounts() }) : '',
   });
 
+  animate(view, snap);
   for (const n of view.querySelectorAll('[data-scroll-key]')) {
     const left = lefts.get(n.dataset.scrollKey);
     if (left) n.scrollLeft = left;
@@ -704,13 +728,13 @@ function renderHistory() {
     else if (['void', 'push'].includes(b.result.status)) amount = `<span class="amt muted">${b.result.status === 'void' ? 'Void' : 'Push'}</span>`;
     else amount = `<span class="amt ${delta > 0 ? 'pos' : delta < 0 ? 'neg' : ''}">${delta >= 0 ? '+' : '−'}${money(Math.abs(delta)).slice(1)}</span>`;
     return `<div class="hist-row">
-      <span class="book ${esc((b.book || '').toLowerCase().replace(/\s/g, ''))}">${esc(b.book || 'Bet')}</span>
+      ${b.book ? `<span class="book ${esc(b.book.toLowerCase().replace(/\s/g, ''))}">${esc(b.book)}</span>` : ''}
       <div>
         <div style="font-size:13.5px">${b.legs.length > 1 ? `${b.legs.length}-leg parlay` : 'Straight'}</div>
         <div class="bet-sub">${b.legs.map((l) => esc(l.playerName || l.teamAbbr || '')).filter(Boolean).slice(0, 3).join(', ')}${b.legs.length > 3 ? '…' : ''}${voids ? ` &middot; ${voids} void` : ''}</div>
       </div>
       ${amount}
-      <button class="icon-btn" data-del="${b.id}">&times;</button>
+      <button class="icon-btn" data-del="${b.id}" aria-label="Delete bet">${icon('x')}</button>
     </div>`;
   }).join('');
 
@@ -721,7 +745,7 @@ function renderHistory() {
       <div class="sum-card"><div class="k">Profit</div><div class="v ${profit >= 0 ? 'pos' : 'neg'}">${profit >= 0 ? '+' : '−'}${money(Math.abs(profit)).slice(1)}</div></div>
     </div>
     ${unpriced ? `<div class="note">${unpriced} won bet${unpriced > 1 ? 's' : ''} left out of profit: a voided leg had no odds to re-price from. Tap Set payout and enter what the book paid.</div>` : ''}
-    ${done.length ? `<div class="panel">${rows}</div>` : '<div class="empty"><div class="big">&#9776;</div><div>Nothing settled yet.</div></div>'}`;
+    ${done.length ? `<div class="panel">${rows}</div>` : '<div class="empty"><div class="title">Nothing settled yet</div><div class="note">Bets land here once every game in them is final.</div></div>'}`;
 }
 
 // ---------------------------------------------------------------- add tab
@@ -805,7 +829,7 @@ function renderAdd() {
   const legRows = d.legs.map((leg) => `<div class="pending-leg">
       <span>${esc(leg.playerName || leg.teamAbbr || '')}</span>
       <span class="mt" style="color:var(--dim)">${legSubtitle(leg, {})}</span>
-      <button class="x" data-rm-leg="${leg.id}">&times;</button>
+      <button class="x" data-rm-leg="${leg.id}" aria-label="Remove leg">${icon('x')}</button>
     </div>`).join('');
 
   // Import leads: pasting a screenshot-derived parlay is the common path, and
@@ -854,13 +878,13 @@ function renderSettings() {
     <div class="panel">
       <h3>Sync across devices</h3>
       ${info.configured ? `
-        <div class="note">Your sync code pairs this device with your phone. Open the app there, hit the gear, and enter this code.</div>
+        <div class="note">Your sync code pairs this device with your phone. Open the app there, tap the settings button in the top right, and enter this code.</div>
         <div class="row" style="margin-top:10px"><input id="in-code" class="mono" value="${esc(info.code)}" readonly></div>
         <div class="row" style="margin-top:8px">
           <button class="btn ghost sm" id="btn-copy-code">Copy code</button>
           <button class="btn ghost sm" id="btn-set-code">Enter a different code</button>
         </div>
-        <div class="note" style="margin-top:8px">Status: ${esc(info.status)}</div>
+        <div class="note" style="margin-top:8px">${esc(String(info.status || '').replace(/^./, (s) => s.toUpperCase()))}</div>
       ` : `<div class="note">Sync is not configured. Bets are stored on this device only.</div>`}
     </div>
     <div class="panel">
@@ -998,6 +1022,7 @@ function go(tab) {
   if (tab === 'fantasy') enterFantasy();
   history.replaceState(null, '', `#${tab}`);
   render();
+  enter($('#view'));
   startView();
 }
 
@@ -1043,6 +1068,7 @@ function openGame(sport, id, from) {
   history[inPlace ? 'replaceState' : 'pushState'](null, '', `#game/${sport}/${id}`);
   $('#view').scrollTop = 0;
   render();
+  enter($('#view'));
   startView();
 }
 
@@ -1087,6 +1113,7 @@ function route() {
   // entry is unknown, so Back switches views rather than popping history.
   if (state.box) state.box.pushed = false;
   render();
+  enter($('#view'));
   startView();
 }
 
@@ -1099,7 +1126,11 @@ document.addEventListener('click', async (ev) => {
   if (t.dataset.tab) return tapTab(t.dataset.tab);
   if (t.dataset.goto) return go(t.dataset.goto);
   if (t.id === 'btn-settings') return go('settings');
-  if (t.id === 'btn-refresh') { await Promise.all([poll(), refreshView()]); toast('Refreshed'); return; }
+  if (t.id === 'btn-refresh') {
+    t.classList.add('spin');
+    try { await Promise.all([poll(), refreshView()]); } finally { t.classList.remove('spin'); }
+    toast('Refreshed'); return;
+  }
 
   // The pin sits inside a game tile, so it is checked before the tile opens.
   const pin = ev.target.closest('[data-pin]');
@@ -1178,7 +1209,11 @@ document.addEventListener('click', async (ev) => {
     const c = (state.prefs.collapsed ||= {});
     if (c[t.dataset.collapse]) delete c[t.dataset.collapse]; else c[t.dataset.collapse] = true;
     persist({ push: false });
-    renderLive();
+    const card = t.closest('.bet');
+    const folded = !!c[t.dataset.collapse];
+    card?.classList.toggle('collapsed', folded);
+    const btn = card?.querySelector('.icon-btn.fold');
+    if (btn) btn.title = folded ? 'Show legs' : 'Hide legs';
     return;
   }
   if (t.dataset.del) {

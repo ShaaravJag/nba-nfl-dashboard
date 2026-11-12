@@ -2,6 +2,7 @@
 // handed, like scores.js -- app.js owns fetching, polling and state.
 import { MARKETS, resolveMarket, lastName } from './markets.js';
 import { playerUrl } from './scores.js';
+import { icon } from './ui.js';
 
 const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 
@@ -164,5 +165,5 @@ export function latestPlayHtml(box) {
     const who = it.a && feed.players[it.a.id]?.name;
     text = `${periodLabel(it.q)} ${it.clock} · ${who ? `${who}: ` : ''}${it.title}${it.a?.line ? ` · ${it.a.line}` : ''}`;
   }
-  return `<button class="fd-strip" data-box-side="feed">${box.state === 'in' ? '<span class="live-dot"></span>' : ''}<span class="fd-strip-text">${esc(text)}</span><span class="fd-strip-go">&#8250;</span></button>`;
+  return `<button class="fd-strip" data-box-side="feed">${box.state === 'in' ? '<span class="live-dot"></span>' : ''}<span class="fd-strip-text">${esc(text)}</span><span class="fd-strip-go">${icon('right')}</span></button>`;
 }

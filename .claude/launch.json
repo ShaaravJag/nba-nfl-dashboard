@@ -1,6 +1,6 @@
 {
   "version": "0.0.1",
   "configurations": [
-    { "name": "bet-tracker", "runtimeExecutable": "npm", "runtimeArgs": ["run", "dev"], "port": 4321 }
+    { "name": "bet-tracker", "runtimeExecutable": "npm", "runtimeArgs": ["run", "dev"], "port": 4321, "url": "http://127.0.0.1:4321" }
   ]
 }
