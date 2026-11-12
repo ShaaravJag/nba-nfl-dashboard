@@ -1010,6 +1010,15 @@ const firstSide = () => (state.prefs.gameTab === 'box' ? 'away' : 'feed');
 const wideMQ = window.matchMedia('(min-width: 1024px)');
 wideMQ.addEventListener('change', () => { if (state.tab === 'game') renderBox(); });
 
+// Whatever is scrolling shows its scrollbar at full strength for a moment.
+document.addEventListener('scroll', (ev) => {
+  const el = ev.target === document ? document.documentElement : ev.target;
+  if (!el.classList) return;
+  el.classList.add('scrolling');
+  clearTimeout(el._scrollT);
+  el._scrollT = setTimeout(() => el.classList.remove('scrolling'), 800);
+}, { capture: true, passive: true });
+
 function go(tab) {
   // Leaving a box score: remember where you were on it, and note that the
   // replaceState below overwrites its history entry.
