@@ -132,7 +132,7 @@ export function fantasyHtml(fx, ctx = {}) {
   const data = fx.data;
   if (!data) {
     return top + (fx.status === 'error'
-      ? `<div class="empty"><div>Couldn't load your leagues.</div><div class="note">${esc(fx.message || 'Check your connection and try again.')}</div></div>`
+      ? `<div class="empty"><div class="title">Couldn't load your leagues</div><div class="note">${esc(fx.message || 'Check your connection.')} Retrying automatically.</div><button class="btn ghost sm" data-retry style="margin-top:14px">Try again</button></div>`
       : `<div class="skel-fx" aria-label="Loading your matchups"><div class="skel"></div><div></div><div class="skel"></div></div>${'<div class="skel-fx"><div class="skel"></div><span class="skel round" style="width:30px;height:30px;align-self:center"></span><div class="skel"></div></div>'.repeat(6)}`);
   }
   const l = data.leagues.find((x) => x.key === ctx.league) || data.leagues.find((x) => !x.error) || data.leagues[0];

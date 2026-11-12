@@ -1,6 +1,6 @@
 // Caches the app shell so it opens instantly and survives a dead connection.
 // Live data is never cached -- a stale box score is worse than none.
-const SHELL = 'bt-shell-v9';
+const SHELL = 'bt-shell-v10';
 const FILES = ['/', '/index.html', '/styles.css', '/app.js', '/markets.js', '/sync.js', '/config.js', '/import-prompt.js', '/scores.js', '/feed.js', '/fantasy.js', '/ui.js', '/manifest.json'];
 
 self.addEventListener('install', (e) => {

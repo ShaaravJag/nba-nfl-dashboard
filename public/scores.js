@@ -167,7 +167,7 @@ export function scoreboardHtml(scores, { legCounts, pins = {} }) {
   let body;
   if (!data) {
     body = scores.error
-      ? `<div class="empty"><div>Couldn't load scores.</div><div class="note">${esc(scores.error)}</div></div>`
+      ? `<div class="empty"><div class="title">Couldn't load scores</div><div class="note">${esc(scores.error)} Retrying automatically.</div><button class="btn ghost sm" data-retry style="margin-top:14px">Try again</button></div>`
       : skeletonGrid();
   } else if (!data.games.length) {
     body = `<div class="empty"><div>No ${sport.toUpperCase()} games ${sport === 'nfl' ? 'this week' : 'on this day'}.</div></div>`;
@@ -335,7 +335,7 @@ export function otherGamesHtml(games, currentId, ctx = {}) {
 export function boxScoreHtml(b, { side, tracked, error, from, wide = false, feedPanel = '', strip = '', gameStrip = '' }) {
   const back = `${gameStrip}<button class="back-btn" data-back>${icon('left')}${from === 'live' ? 'Bets' : 'Games'}</button>`;
   if (!b) {
-    if (error) return `${back}<div class="empty"><div class="note">${esc(error)}</div></div>`;
+    if (error) return `${back}<div class="empty"><div class="title">${esc(error)}</div><div class="note">Retrying automatically.</div><button class="btn ghost sm" data-retry style="margin-top:14px">Try again</button></div>`;
     const line = (w) => `<span class="skel" style="width:${w}%"></span>`;
     return `${back}<div class="skel-box" aria-label="Loading box score">
       <div class="skel-row" style="justify-content:space-between"><span class="skel round" style="width:40px;height:40px"></span><span class="skel" style="width:30%;height:22px"></span><span class="skel round" style="width:40px;height:40px"></span></div>

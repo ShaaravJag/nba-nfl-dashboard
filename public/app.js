@@ -183,7 +183,7 @@ async function loadScores() {
     }
   } catch (err) {
     console.warn('scores failed', err);
-    if (query === scoresQuery()) state.scores.error = 'Check your connection and try again.';
+    if (query === scoresQuery()) state.scores.error = 'Check your connection.';
   }
   if (state.tab === 'games') renderGames();
   else if (state.tab === 'game') renderBox();
@@ -233,7 +233,7 @@ async function loadFantasy() {
     }
   } catch (err) {
     console.warn('fantasy failed', err);
-    if (!fx.data) Object.assign(fx, { status: 'error', message: 'Check your connection and try again.' });
+    if (!fx.data) Object.assign(fx, { status: 'error', message: 'Check your connection.' });
   }
   if (state.tab === 'fantasy') renderFantasy();
 }
@@ -241,9 +241,21 @@ async function loadFantasy() {
 // The Games tab and an open box score poll on their own timer, separate from
 // the bet loop, and only while you are looking at them.
 let viewTimer = null;
+let viewFails = 0;
+
+// A view that has never loaded (laptop just woke, Wi-Fi still joining) retries
+// fast -- 2s, 4s, 8s ... up to 30s -- instead of waiting out its normal cadence.
+function viewFailed() {
+  if (state.tab === 'games') return !state.scores.data && !!state.scores.error;
+  if (state.tab === 'game') return !state.box?.data && !!state.box?.error;
+  if (state.tab === 'fantasy') return state.fx.status === 'error' && !state.fx.data;
+  return false;
+}
 
 function viewDelay() {
   if (document.hidden) return null;
+  if (viewFailed()) return Math.min(30000, 2000 * 2 ** viewFails++);
+  viewFails = 0;
   if (state.tab === 'games') return state.scores.data?.games?.some((g) => g.state === 'in') ? 10000 : 60000;
   // Sleeper's live stats refresh every 4s and ESPN's fantasy API isn't cached,
   // so a live matchup keeps pace with their own apps.
@@ -1129,7 +1141,7 @@ function route() {
 window.addEventListener('popstate', route);
 
 document.addEventListener('click', async (ev) => {
-  const t = ev.target.closest('[data-tab],[data-goto],[data-del],[data-pick-player],[data-pick-game],[data-market],[data-team],[data-rm-leg],[data-manual],[data-open-game],[data-sport],[data-day],[data-week],[data-box-side],[data-back],[data-set-payout],[data-feed-more],[data-collapse],button');
+  const t = ev.target.closest('[data-tab],[data-goto],[data-del],[data-pick-player],[data-pick-game],[data-market],[data-team],[data-rm-leg],[data-manual],[data-open-game],[data-sport],[data-day],[data-week],[data-box-side],[data-back],[data-set-payout],[data-feed-more],[data-collapse],[data-retry],button');
   if (!t) return;
 
   if (t.dataset.tab) return tapTab(t.dataset.tab);
@@ -1173,6 +1185,14 @@ document.addEventListener('click', async (ev) => {
     persist({ push: false });
     renderBox();
     return;
+  }
+  if (t.dataset.retry !== undefined) {
+    // Back to the loading placeholders while it tries again.
+    viewFails = 0;
+    if (state.tab === 'games') state.scores.error = null;
+    if (state.tab === 'game' && state.box) state.box.error = null;
+    if (state.tab === 'fantasy' && !state.fx.data) Object.assign(state.fx, { status: 'loading', message: '' });
+    render(); startView(); return;
   }
   if (t.dataset.feedMore !== undefined && state.box) {
     state.box.limit = (state.box.limit || FEED_STEP) + FEED_STEP;
@@ -1386,6 +1406,9 @@ document.addEventListener('change', (ev) => {
 document.addEventListener('keydown', (ev) => {
   if (ev.key === 'Enter' && ev.target.id === 'in-fx-key') saveFantasyKey();
 });
+
+// Back online: catch up straight away rather than at the next timer.
+window.addEventListener('online', () => { viewFails = 0; poll(); scheduleNextPoll(); startView(); });
 
 document.addEventListener('visibilitychange', () => {
   if (document.hidden) { clearTimeout(viewTimer); return; }
