@@ -481,6 +481,17 @@ table.box { width: max-content; min-width: 100%; border-collapse: separate; bord
 
 /* ---------- live feed ---------- */
 @media (min-width: 1024px) { main#view.wrap.wide { padding-inline: max(14px, calc((100% - 1212px) / 2)); } }
+/* The header follows the view's width, so its title and buttons line up with
+   the content below. The view keeps a gutter on both sides for its scrollbar,
+   which centres its column on the window exactly like the header. */
+/* Padding percentages count the gutters, so the column widths add them back (+20px). */
+@media (min-width: 760px) {
+  main#view, .topbar { scrollbar-gutter: stable both-edges; }
+  .topbar { overflow: hidden; }
+  main#view.wrap { padding-inline: max(14px, calc((100% - 712px) / 2)); }
+}
+@media (min-width: 1024px) { main#view.wrap.wide { padding-inline: max(14px, calc((100% - 1232px) / 2)); } }
+@media (min-width: 1024px) { body:has(#view.wide) .topbar .wrap { max-width: 1240px; } }
 .game-cols { display: grid; grid-template-columns: minmax(0, 1fr) 380px; gap: 18px; align-items: start; margin-top: 12px; }
 .game-cols .box-seg { margin-top: 0; }
 .col-box { min-width: 0; }
