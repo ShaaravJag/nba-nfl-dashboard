@@ -1,8 +1,12 @@
-# Bet Tracker
+# NBA/NFL Dashboard
 
-Live parlay tracking across sportsbooks, for personal use. Enter a bet once and
-watch each leg's progress, the player's live stat line, and the game clock update
-on their own — on a laptop and on a phone, with no subscription and no paid APIs.
+A live NBA and NFL stats and scores dashboard, built for personal use. Every game's
+scores, full box scores and a play-by-play feed in one place, plus fantasy matchups
+and tracking for the player props you're following, all updating on their own on a
+laptop and on a phone, with no subscription and no paid APIs.
+
+I built it because I kept missing the actual game while bouncing between apps,
+waiting on slow loads, and never finding all the stats I wanted in one place.
 
 ## How it works
 
@@ -93,8 +97,8 @@ The site runs on [spawnpoint](https://getspawnpoint.com) at
 `public/` and runs every `api/` handler, listening on `PORT` (8080 there, 4321
 locally).
 
-Pushing to `main` does **not** deploy. To ship, ask Claude Code to deploy Bet
-Tracker to spawnpoint. It uploads the folder (leaving out `.env*`, `.vercel`,
+Pushing to `main` does **not** deploy. To ship, ask Claude Code to deploy the
+dashboard to spawnpoint. It uploads the folder (leaving out `.env*`, `.vercel`,
 `.claude`, `.git`, `node_modules`) and redeploys the project named
 `bet-tracker` in place, at the same URL.
 
