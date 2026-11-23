@@ -91,38 +91,43 @@ parlays at once.
 
 ## Deploying
 
-The site runs on [spawnpoint](https://getspawnpoint.com) at
-**https://bet-tracker.spwt.app** (project `bet-tracker`, public). spawnpoint runs
-`npm start`, which is `scripts/dev-server.mjs`: one Node server that serves
-`public/` and runs every `api/` handler, listening on `PORT` (8080 there, 4321
-locally).
+Pushing to `main` triggers a deployment, but Vercel will mark it `BLOCKED` unless
+GitHub can attribute the commit to the account that owns the Vercel project. On a
+Hobby team the commit author must verifiably be the team owner, and GitHub matches
+commits to accounts by **verified email only** — a commit whose email is not on the
+account shows `author: null` in the API and cannot be verified.
 
-Pushing to `main` does **not** deploy. To ship, ask Claude Code to deploy the
-dashboard to spawnpoint. It uploads the folder (leaving out `.env*`, `.vercel`,
-`.claude`, `.git`, `node_modules`) and redeploys the project named
-`bet-tracker` in place, at the same URL.
+This repo is therefore configured to commit as the GitHub-provided noreply address:
 
-On spawnpoint's Free plan the app sleeps after an hour with no visitors, and the
-next visit takes about 30 seconds to wake it.
+```
+git config user.email "110620877+ShaaravJag@users.noreply.github.com"
+```
 
-The old Vercel project (`bet-tracker`) is paused, not deleted. `vercel.json` only
-matters there. Commits still use the GitHub noreply address
-(`110620877+ShaaravJag@users.noreply.github.com`).
+That address always attributes to the account and keeps a real email out of the
+history. To check attribution after a push:
+
+```
+gh api repos/ShaaravJag/bet-tracker/commits/HEAD --jq '.author.login'
+```
+
+`null` means the deployment will be blocked. If a deployment does get blocked, it
+can still be shipped through the API, which is authenticated as the account rather
+than the commit author.
 
 ### Fantasy setup
 
-The site is public, so the Fantasy view is locked. Three environment variables on
-the spawnpoint project, set with spawnpoint's `set_env` (or in its console); the
-app restarts with them, no redeploy:
+The site is public, so the Fantasy view is locked. Three environment variables in
+Vercel (Settings → Environment Variables), then a redeploy:
 
 | Variable | What it is |
 |---|---|
 | `FANTASY_KEY` | Any passphrase. Enter the same one under Settings → Fantasy on each device. |
 | `ESPN_S2`, `ESPN_SWID` | The ESPN login cookies for the two private ESPN leagues (see the Fantasy project's `README-CREDENTIALS.md`). |
 
-`/api/fantasy` answers 401 without the key. For `npm run dev`, put the same three
-lines in a gitignored `.env.local`. With the ESPN cookies in the environment,
-`npm test` also checks the ESPN leagues' stat lines against ESPN's box scores.
+`/api/fantasy` answers 401 without the key and is never cached at the edge. For
+`npm run dev`, put the same three lines in a gitignored `.env.local`. With the
+ESPN cookies in the environment, `npm test` also checks the ESPN leagues' stat lines
+against ESPN's box scores.
 
 ## Known limits
 
